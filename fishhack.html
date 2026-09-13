@@ -1121,7 +1121,10 @@ function renderList(){
   }).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
   document.getElementById('listCount').textContent=rows.length+'件';
   const tbl=document.getElementById('listTbl');
-  if(!rows.length){tbl.innerHTML='';tbl.parentElement.innerHTML='<div class="empty"><div class="big">🐟</div><div class="msg">この条件の納品はありません</div><div class="hint">月や取引先を変えてみてください</div></div>';return;}
+  if(!rows.length){
+    tbl.innerHTML='<tbody><tr><td style="padding:0"><div class="empty"><div class="big">🐟</div><div class="msg">この条件の納品はありません</div><div class="hint">期間や取引先、キーワードを変えてみてください</div></div></td></tr></tbody>';
+    return;
+  }
   let sum=0;
   const body=rows.map(d=>{
     const t=dTotal(d); sum+=t.grand;
