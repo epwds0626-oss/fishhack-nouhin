@@ -347,12 +347,40 @@ header{
     <div class="page-hd">
       <h1>納品履歴</h1>
       <div class="sub" id="listCount">—</div>
-      <div class="sp"></div>
-      <div class="field" style="min-width:160px">
-        <select id="listClient" onchange="renderList()"><option value="">全取引先</option></select>
-      </div>
-      <div class="field">
-        <input type="month" id="listMonth" onchange="renderList()">
+    </div>
+    <div class="slip" style="margin-bottom:14px">
+      <div class="slip-bd" style="padding:14px 16px">
+        <div class="grid" style="grid-template-columns:1.4fr 1fr 1fr 1.2fr auto;gap:12px;align-items:end">
+          <div class="field">
+            <label>フリーワード（取引先・品名・伝票番号）</label>
+            <input type="search" id="listKeyword" placeholder="キーワード…" oninput="renderList()">
+          </div>
+          <div class="field">
+            <label>取引先</label>
+            <select id="listClient" onchange="renderList()"><option value="">全取引先</option></select>
+          </div>
+          <div class="field">
+            <label>品名を含む</label>
+            <input type="search" id="listItemName" placeholder="例：マグロ" oninput="renderList()">
+          </div>
+          <div class="field">
+            <label>納品日の期間</label>
+            <div style="display:flex;gap:6px;align-items:center">
+              <input type="date" id="listFrom" onchange="renderList()" style="flex:1">
+              <span class="muted">〜</span>
+              <input type="date" id="listTo" onchange="renderList()" style="flex:1">
+            </div>
+          </div>
+          <div class="field">
+            <button class="btn btn-sm" onclick="clearListFilters()">クリア</button>
+          </div>
+        </div>
+        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-sm btn-ghost" onclick="setListRange('thisMonth')">今月</button>
+          <button class="btn btn-sm btn-ghost" onclick="setListRange('lastMonth')">先月</button>
+          <button class="btn btn-sm btn-ghost" onclick="setListRange('thisFy')">今年度</button>
+          <button class="btn btn-sm btn-ghost" onclick="setListRange('all')">全期間</button>
+        </div>
       </div>
     </div>
     <div class="slip"><div style="overflow-x:auto"><table class="list" id="listTbl"></table></div></div>
@@ -623,7 +651,7 @@ function startApp(){
   document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>showPage(t.dataset.p));
   // 日付初期値
   document.getElementById('nvDate').value=todayStr();
-  document.getElementById('listMonth').value=todayStr().slice(0,7);
+  setListRange('thisMonth');
   // 品目行を1つ
   addItemRow();
   // Firebase購読
@@ -1039,12 +1067,56 @@ function printEditDelivery(){
 }
 
 /* ========== 納品履歴 ========== */
+// 期間クイック設定
+function setListRange(kind){
+  const fromEl=document.getElementById('listFrom');
+  const toEl=document.getElementById('listTo');
+  const now=new Date();
+  const ymd=(d)=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  if(kind==='thisMonth'){
+    fromEl.value=ymd(new Date(now.getFullYear(),now.getMonth(),1));
+    toEl.value=ymd(new Date(now.getFullYear(),now.getMonth()+1,0));
+  }else if(kind==='lastMonth'){
+    fromEl.value=ymd(new Date(now.getFullYear(),now.getMonth()-1,1));
+    toEl.value=ymd(new Date(now.getFullYear(),now.getMonth(),0));
+  }else if(kind==='thisFy'){
+    const m=now.getMonth()+1;
+    const startYear=m>=10?now.getFullYear():now.getFullYear()-1;
+    fromEl.value=startYear+'-10-01';
+    toEl.value=(startYear+1)+'-09-30';
+  }else if(kind==='all'){
+    fromEl.value='';toEl.value='';
+  }
+  renderList();
+}
+function clearListFilters(){
+  document.getElementById('listKeyword').value='';
+  document.getElementById('listClient').value='';
+  document.getElementById('listItemName').value='';
+  document.getElementById('listFrom').value='';
+  document.getElementById('listTo').value='';
+  renderList();
+}
 function renderList(){
   const cid=document.getElementById('listClient').value;
-  const ym=document.getElementById('listMonth').value;
+  const kw=(document.getElementById('listKeyword').value||'').trim().toLowerCase();
+  const itemKw=(document.getElementById('listItemName').value||'').trim().toLowerCase();
+  const from=document.getElementById('listFrom').value;
+  const to=document.getElementById('listTo').value;
   let rows=S.deliveries.filter(d=>{
     if(cid&&d.client!==cid)return false;
-    if(ym&&(!d.date||d.date.slice(0,7)!==ym))return false;
+    if(from&&(!d.date||d.date<from))return false;
+    if(to&&(!d.date||d.date>to))return false;
+    if(itemKw){
+      const hit=(d.items||[]).some(it=>(it.name||'').toLowerCase().includes(itemKw));
+      if(!hit)return false;
+    }
+    if(kw){
+      const nm=((S.clients[d.client]||{}).name||d.client||'').toLowerCase();
+      const denpyo=(d.denpyo||'').toLowerCase();
+      const itemNames=(d.items||[]).map(it=>it.name||'').join(' ').toLowerCase();
+      if(!nm.includes(kw)&&!denpyo.includes(kw)&&!itemNames.includes(kw))return false;
+    }
     return true;
   }).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
   document.getElementById('listCount').textContent=rows.length+'件';
