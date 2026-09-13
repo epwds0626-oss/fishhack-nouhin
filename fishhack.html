@@ -1325,6 +1325,8 @@ async function togglePaid(cid){
   }catch(e){console.error(e);toast('更新失敗：'+e.message,'err');}
 }
 
+let _invoiceRows=[]; // 現在編集中の請求明細（元データ）
+
 function openInvoice(cid){
   const ym=document.getElementById('invMonth').value;
   const iv=invoiceData(cid,ym);
@@ -1334,76 +1336,130 @@ function openInvoice(cid){
   document.getElementById('ieYm').value=ym;
   document.getElementById('ieClientName').textContent=nm+'（'+ym+'）';
   document.getElementById('ieNote').value='';
-  // 形式は請求一覧で選んだものを引き継ぐ
   document.getElementById('ieFormat').value=document.getElementById('invFormat').value;
-  // 明細行を構築（納品の全品目を1行ずつ）
-  const tb=document.getElementById('ieItems');
-  tb.innerHTML='';
+  // 明細データを保持（品目1行ずつ）
+  _invoiceRows=[];
   iv.dels.forEach(d=>{
     (d.items||[]).forEach(it=>{
       const tot=it.total!=null?Math.floor(it.total):Math.floor((it.qty||0)*(it.price||0)-(it.disc||0));
-      addInvoiceRow({date:d.date,denpyo:d.denpyo,name:it.name,qty:it.qty,price:it.price,tax:it.tax,total:tot});
+      _invoiceRows.push({date:d.date,denpyo:d.denpyo,name:it.name,qty:it.qty,price:it.price,tax:it.tax,total:tot});
     });
   });
-  calcInvoiceTotals();
+  renderInvoiceItems();
   document.getElementById('invEditModal').classList.add('on');
 }
 
-// 請求明細の1行を追加
-function addInvoiceRow(preset){
+// 明細を現在の形式で描画（明細型=品目1行ずつ編集可 / サマリ型=伝票ごと集約・読取専用）
+function renderInvoiceItems(){
+  const fmt=document.getElementById('ieFormat').value;
+  const tb=document.getElementById('ieItems');
+  const thead=tb.closest('table').querySelector('thead');
+  tb.innerHTML='';
+  if(fmt==='summary'){
+    // ヘッダーをサマリ用に
+    thead.innerHTML='<tr><th style="width:110px">納品日</th><th style="width:90px">伝票番号</th><th>品目</th><th class="r" style="width:130px">金額（税抜）</th></tr>';
+    // 伝票番号でグループ化
+    const groups={};
+    _invoiceRows.forEach(r=>{
+      const key=r.denpyo||('__'+r.date+r.name);
+      if(!groups[key])groups[key]={date:r.date,denpyo:r.denpyo,names:[],sum:0};
+      groups[key].names.push(r.name);
+      groups[key].sum+=Math.floor(r.total||0);
+    });
+    Object.values(groups).forEach(g=>{
+      const names=g.names.filter(n=>n!=='配送料').slice(0,4).join('・');
+      const more=g.names.filter(n=>n!=='配送料').length>4?' 他':'';
+      const tr=document.createElement('tr');
+      tr.innerHTML=`<td class="nowrap">${esc(g.date)}</td><td class="mono">${esc(g.denpyo)}</td>
+        <td>${esc(names)}${more}</td><td class="num" style="font-weight:600">${yen(g.sum)}</td>`;
+      tb.appendChild(tr);
+    });
+  }else{
+    // ヘッダーを明細用に
+    thead.innerHTML='<tr><th style="width:100px">納品日</th><th style="width:80px">伝票</th><th>品名</th><th style="width:70px">数量</th><th style="width:100px">単価</th><th style="width:64px">税</th><th style="width:110px">金額</th><th style="width:32px"></th></tr>';
+    _invoiceRows.forEach((r,idx)=>addInvoiceRow(r,idx));
+  }
+  calcInvoiceTotals();
+}
+
+// 明細型の1行を追加（idx指定時は既存行、なければ新規調整行）
+function addInvoiceRow(preset,idx){
+  // サマリ表示中に「行を追加」が押されたら明細型に戻す
+  if(document.getElementById('ieFormat').value==='summary'&&idx===undefined){
+    document.getElementById('ieFormat').value='detail';
+    if(preset===undefined){ // ボタンからの呼び出し
+      _invoiceRows.push({date:'',denpyo:'',name:'',qty:'',price:0,tax:8,total:0});
+      renderInvoiceItems();
+      return;
+    }
+  }
   const tb=document.getElementById('ieItems');
   const tr=document.createElement('tr');
+  const i=(idx!==undefined)?idx:(_invoiceRows.length);
+  tr.dataset.idx=i;
   tr.innerHTML=`
     <td><input type="text" class="ie-date" placeholder="—" style="font-size:12px"></td>
     <td><input type="text" class="ie-denpyo mono" placeholder="—" style="font-size:11px"></td>
     <td><input type="text" class="ie-name" placeholder="品名・調整項目"></td>
     <td><input type="number" class="num ie-qty" step="0.01" placeholder=""></td>
-    <td><input type="number" class="num ie-price" placeholder="0" oninput="calcInvoiceTotals()"></td>
-    <td><select class="ie-tax" onchange="calcInvoiceTotals()"><option value="8">8%</option><option value="10">10%</option></select></td>
-    <td><input type="number" class="num ie-total" placeholder="0" oninput="this.dataset.manual='1';calcInvoiceTotals()"></td>
-    <td><button class="del" onclick="this.closest('tr').remove();calcInvoiceTotals()">×</button></td>`;
+    <td><input type="number" class="num ie-price" placeholder="0"></td>
+    <td><select class="ie-tax"><option value="8">8%</option><option value="10">10%</option></select></td>
+    <td><input type="number" class="num ie-total" placeholder="0"></td>
+    <td><button class="del">×</button></td>`;
   tb.appendChild(tr);
-  if(preset){
-    tr.querySelector('.ie-date').value=preset.date||'';
-    tr.querySelector('.ie-denpyo').value=preset.denpyo||'';
-    tr.querySelector('.ie-name').value=preset.name||'';
-    tr.querySelector('.ie-qty').value=preset.qty??'';
-    tr.querySelector('.ie-price').value=preset.price??'';
-    tr.querySelector('.ie-tax').value=preset.tax??8;
-    tr.querySelector('.ie-total').value=preset.total??'';
-  }
-  // 数量・単価変更で金額を自動計算（手動上書きしていなければ）
-  const qtyEl=tr.querySelector('.ie-qty'),priceEl=tr.querySelector('.ie-price'),totEl=tr.querySelector('.ie-total');
+  const p=preset||{};
+  tr.querySelector('.ie-date').value=p.date||'';
+  tr.querySelector('.ie-denpyo').value=p.denpyo||'';
+  tr.querySelector('.ie-name').value=p.name||'';
+  tr.querySelector('.ie-qty').value=p.qty??'';
+  tr.querySelector('.ie-price').value=p.price??'';
+  tr.querySelector('.ie-tax').value=p.tax??8;
+  tr.querySelector('.ie-total').value=(p.total!=null?Math.floor(p.total):'');
+  // イベント
+  const qtyEl=tr.querySelector('.ie-qty'),priceEl=tr.querySelector('.ie-price'),
+        totEl=tr.querySelector('.ie-total'),taxEl=tr.querySelector('.ie-tax');
+  let manual=false;
   function autoTotal(){
-    if(totEl.dataset.manual==='1')return;
-    const q=parseFloat(qtyEl.value)||0,p=parseFloat(priceEl.value)||0;
-    if(q&&p)totEl.value=Math.round(q*p);
+    if(manual)return;
+    const q=parseFloat(qtyEl.value)||0,pr=parseFloat(priceEl.value)||0;
+    if(q&&pr)totEl.value=Math.floor(q*pr);
+    syncRow();
+  }
+  function syncRow(){
+    const ix=parseInt(tr.dataset.idx,10);
+    _invoiceRows[ix]={
+      date:tr.querySelector('.ie-date').value.trim(),
+      denpyo:tr.querySelector('.ie-denpyo').value.trim(),
+      name:tr.querySelector('.ie-name').value.trim(),
+      qty:qtyEl.value,
+      price:parseFloat(priceEl.value)||0,
+      tax:parseInt(taxEl.value,10)||8,
+      total:Math.floor(parseFloat(totEl.value)||0)
+    };
     calcInvoiceTotals();
   }
   qtyEl.addEventListener('input',autoTotal);
   priceEl.addEventListener('input',autoTotal);
-  calcInvoiceTotals();
+  totEl.addEventListener('input',()=>{manual=true;syncRow();});
+  taxEl.addEventListener('change',syncRow);
+  tr.querySelector('.ie-date').addEventListener('input',syncRow);
+  tr.querySelector('.ie-denpyo').addEventListener('input',syncRow);
+  tr.querySelector('.ie-name').addEventListener('input',syncRow);
+  tr.querySelector('.del').addEventListener('click',()=>{
+    const ix=parseInt(tr.dataset.idx,10);
+    _invoiceRows.splice(ix,1);
+    renderInvoiceItems();
+  });
 }
 
-function readInvoiceItems(){
-  return [...document.querySelectorAll('#ieItems tr')].map(tr=>({
-    date:tr.querySelector('.ie-date').value.trim(),
-    denpyo:tr.querySelector('.ie-denpyo').value.trim(),
-    name:tr.querySelector('.ie-name').value.trim(),
-    qty:tr.querySelector('.ie-qty').value,
-    price:parseFloat(tr.querySelector('.ie-price').value)||0,
-    tax:parseInt(tr.querySelector('.ie-tax').value,10)||8,
-    total:Math.round(parseFloat(tr.querySelector('.ie-total').value)||0)
-  }));
-}
-
+// _invoiceRows から合計計算
 function calcInvoiceTotals(){
-  const rows=readInvoiceItems();
   let sub=0,t8=0,t10=0;
-  rows.forEach(r=>{
+  _invoiceRows.forEach(r=>{
     if(!r.name)return;
-    sub+=r.total;
-    if(r.tax===8)t8+=r.total;else t10+=r.total;
+    const tot=Math.floor(r.total||0);
+    sub+=tot;
+    if(r.tax===8)t8+=tot;else t10+=tot;
   });
   const tax8=Math.floor(t8*0.08),tax10=Math.floor(t10*0.10);
   document.getElementById('ieSub').textContent=yen(sub);
@@ -1413,7 +1469,13 @@ function calcInvoiceTotals(){
   return {sub,tax8,tax10,grand:sub+tax8+tax10};
 }
 
-function renderInvoiceItems(){ /* 形式切替はPDF生成時に反映されるためここでは何もしない */ }
+// PDF生成用に明細を返す
+function readInvoiceItems(){
+  return _invoiceRows.filter(r=>r.name).map(r=>({
+    date:r.date,denpyo:r.denpyo,name:r.name,qty:r.qty,
+    price:r.price||0,tax:r.tax||8,total:Math.floor(r.total||0)
+  }));
+}
 
 // 調整済みの内容でPDFを発行
 function printInvoice(){
