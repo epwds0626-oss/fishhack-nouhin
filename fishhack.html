@@ -430,7 +430,49 @@ header{
   </div>
 </div>
 
-<!-- 取引先編集モーダル -->
+<!-- 納品編集モーダル -->
+<div class="modal-bg" id="editModal">
+  <div class="modal" style="width:min(920px,100%)">
+    <div class="modal-hd">
+      <h2 id="emTitle">納品を編集</h2>
+      <span class="denpyo" id="emDenpyo" style="margin-left:10px"></span>
+      <button class="x" onclick="closeModal('editModal')">×</button>
+    </div>
+    <div class="modal-bd">
+      <input type="hidden" id="emKey">
+      <div class="grid g4" style="gap:12px;margin-bottom:16px">
+        <div class="field"><label>取引先</label><input type="text" id="emClient" readonly style="background:#f4f8fa"></div>
+        <div class="field"><label>納品日</label><input type="date" id="emDate"></div>
+        <div class="field"><label>業務区分</label><input type="text" id="emGyomu"></div>
+        <div class="field"><label>支払方法</label><input type="text" id="emPay"></div>
+      </div>
+      <table class="itbl">
+        <thead><tr>
+          <th style="width:90px">数量</th><th>品名</th><th style="width:140px">産地</th>
+          <th style="width:100px">単価</th><th style="width:70px">割引</th><th style="width:64px">税</th>
+          <th style="width:100px">金額</th><th style="width:32px"></th>
+        </tr></thead>
+        <tbody id="emItems"></tbody>
+      </table>
+      <button class="btn btn-sm" style="margin-top:10px" onclick="addEditRow()">＋ 行を追加</button>
+      <div class="totals" style="margin-top:12px">
+        <div class="totals-box">
+          <div class="trow"><span>小計（税抜）</span><span class="v" id="emSub">¥0</span></div>
+          <div class="trow"><span>消費税 8%</span><span class="v" id="emTax8">¥0</span></div>
+          <div class="trow"><span>消費税 10%</span><span class="v" id="emTax10">¥0</span></div>
+          <div class="trow grand"><span>合計</span><span class="v" id="emGrand">¥0</span></div>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:18px">
+        <button class="btn btn-primary" onclick="saveEditDelivery()">変更を保存</button>
+        <button class="btn" onclick="printEditDelivery()">PDF / 印刷</button>
+        <button class="btn" onclick="closeModal('editModal')">キャンセル</button>
+        <div class="sp" style="margin-left:auto"></div>
+        <button class="btn btn-rust" onclick="deleteDelivery()">この納品を削除</button>
+      </div>
+    </div>
+  </div>
+</div>
 <div class="modal-bg" id="clientModal">
   <div class="modal" style="width:min(640px,100%)">
     <div class="modal-hd"><h2 id="cmTitle">取引先を追加</h2><button class="x" onclick="closeModal('clientModal')">×</button></div>
@@ -591,7 +633,8 @@ function startApp(){
       const d=snap.val()||{};
       S.clients=d.clients||{};
       S.items=d.item_master||[];
-      S.deliveries=d.deliveries?Object.values(d.deliveries):[];
+      // 納品レコードにFirebaseキーを埋め込む（編集・削除で使う）
+      S.deliveries=d.deliveries?Object.keys(d.deliveries).map(k=>({_key:k,...d.deliveries[k]})):[];
       afterData();
     });
   }else{
@@ -838,6 +881,163 @@ function resetForm(){
   addItemRow(); onClientChange(); calcTotals();
 }
 
+/* ========== 納品編集モーダル ========== */
+function openEditDelivery(key){
+  if(!key){toast('この納品は編集できません（旧データ）','err');return;}
+  const d=S.deliveries.find(x=>x._key===key);
+  if(!d){toast('納品が見つかりません','err');return;}
+  document.getElementById('emKey').value=key;
+  document.getElementById('emDenpyo').textContent=d.denpyo||'';
+  const nm=(S.clients[d.client]||{}).name||d.client;
+  document.getElementById('emClient').value=nm;
+  document.getElementById('emClient').dataset.cid=d.client;
+  document.getElementById('emDate').value=d.date||'';
+  document.getElementById('emGyomu').value=d.gyomu||'';
+  document.getElementById('emPay').value=d.pay||'';
+  // 品目行を復元
+  const tb=document.getElementById('emItems');
+  tb.innerHTML='';
+  (d.items||[]).forEach(it=>addEditRow(it));
+  if(!(d.items||[]).length)addEditRow();
+  calcEditTotals();
+  document.getElementById('editModal').classList.add('on');
+}
+
+function addEditRow(preset){
+  const tb=document.getElementById('emItems');
+  const tr=document.createElement('tr');
+  tr.innerHTML=`
+    <td><input type="number" class="num em-qty" step="0.01" placeholder="0" oninput="calcEditTotals()"></td>
+    <td><div class="suggest-wrap">
+      <input type="text" class="em-name" placeholder="品名" autocomplete="off"
+        oninput="onEditNameInput(this)" onblur="setTimeout(()=>hideSuggest(this),150)">
+    </div></td>
+    <td><input type="text" class="em-origin" placeholder="産地"></td>
+    <td><input type="number" class="num em-price" placeholder="0" oninput="calcEditTotals()"></td>
+    <td><input type="number" class="num em-disc" placeholder="0" oninput="calcEditTotals()"></td>
+    <td><select class="em-tax" onchange="calcEditTotals()"><option value="8">8%</option><option value="10">10%</option></select></td>
+    <td class="rowtotal">¥0</td>
+    <td><button class="del" onclick="this.closest('tr').remove();calcEditTotals()">×</button></td>`;
+  tb.appendChild(tr);
+  if(preset){
+    tr.querySelector('.em-qty').value=preset.qty??'';
+    tr.querySelector('.em-name').value=preset.name??'';
+    tr.querySelector('.em-origin').value=preset.origin??'';
+    tr.querySelector('.em-price').value=preset.price??'';
+    tr.querySelector('.em-disc').value=preset.disc??'';
+    tr.querySelector('.em-tax').value=preset.tax??8;
+  }
+  calcEditTotals();
+}
+
+function onEditNameInput(inp){
+  const q=inp.value.trim();
+  const wrap=inp.closest('.suggest-wrap');
+  let box=wrap.querySelector('.suggest');
+  if(!q){if(box)box.remove();return;}
+  const ql=q.toLowerCase();
+  const hits=S.items.filter(it=>it.name.toLowerCase().includes(ql)).slice(0,12);
+  if(!hits.length){if(box)box.remove();return;}
+  if(!box){box=document.createElement('div');box.className='suggest';wrap.appendChild(box);}
+  box.innerHTML=hits.map((it,i)=>`
+    <div class="suggest-item" data-i="${i}" onmousedown="pickEditSuggest(this)">
+      <span class="snm">${esc(it.name)}</span>
+      <span class="smeta">平均${it.price_avg?('¥'+it.price_avg):'—'} / ${it.count}回 / ${it.tax}%</span>
+    </div>`).join('');
+  box._hits=hits;
+}
+function pickEditSuggest(el){
+  const box=el.closest('.suggest');const i=parseInt(el.dataset.i,10);const it=box._hits[i];
+  const tr=box.closest('tr');
+  tr.querySelector('.em-name').value=it.name;
+  if(it.price_avg)tr.querySelector('.em-price').value=it.price_avg;
+  if(it.origins&&it.origins[0])tr.querySelector('.em-origin').value=it.origins[0];
+  tr.querySelector('.em-tax').value=it.tax||8;
+  box.remove();calcEditTotals();
+}
+
+function readEditItems(){
+  return [...document.querySelectorAll('#emItems tr')].map(tr=>{
+    const qty=parseFloat(tr.querySelector('.em-qty').value)||0;
+    const name=tr.querySelector('.em-name').value.trim();
+    const origin=tr.querySelector('.em-origin').value.trim();
+    const price=parseFloat(tr.querySelector('.em-price').value)||0;
+    const disc=parseFloat(tr.querySelector('.em-disc').value)||0;
+    const tax=parseInt(tr.querySelector('.em-tax').value,10)||8;
+    const total=Math.round(qty*price-disc);
+    return {tr,qty,name,origin,price,disc,tax,total};
+  });
+}
+function calcEditTotals(){
+  const rows=readEditItems();
+  let sub=0,t8=0,t10=0;
+  rows.forEach(r=>{
+    r.tr.querySelector('.rowtotal').textContent=yen(r.total);
+    if(!r.name)return;
+    sub+=r.total;
+    if(r.tax===8)t8+=r.total;else t10+=r.total;
+  });
+  const tax8=Math.floor(t8*0.08),tax10=Math.floor(t10*0.10);
+  document.getElementById('emSub').textContent=yen(sub);
+  document.getElementById('emTax8').textContent=yen(tax8);
+  document.getElementById('emTax10').textContent=yen(tax10);
+  document.getElementById('emGrand').textContent=yen(sub+tax8+tax10);
+  return {sub,tax8,tax10,grand:sub+tax8+tax10};
+}
+
+async function saveEditDelivery(){
+  const key=document.getElementById('emKey').value;
+  if(!key)return;
+  const rows=readEditItems().filter(r=>r.name);
+  if(!rows.length){toast('品目を1つ以上入力してください','err');return;}
+  const items=rows.map(r=>({qty:r.qty,name:r.name,origin:r.origin,price:r.price,disc:r.disc,total:r.total,tax:r.tax}));
+  const upd={
+    date:document.getElementById('emDate').value,
+    gyomu:document.getElementById('emGyomu').value.trim()||null,
+    pay:document.getElementById('emPay').value.trim()||null,
+    items,
+    edited:Date.now()
+  };
+  try{
+    await db.ref('fishhack/deliveries/'+key).update(upd);
+    toast('納品を更新しました','ok');
+    closeModal('editModal');
+  }catch(e){console.error(e);toast('更新失敗：'+e.message,'err');}
+}
+
+async function deleteDelivery(){
+  const key=document.getElementById('emKey').value;
+  if(!key)return;
+  const d=S.deliveries.find(x=>x._key===key);
+  const denpyo=d?d.denpyo:'';
+  if(!confirm('納品「'+denpyo+'」を削除しますか？\nこの操作は取り消せません。'))return;
+  try{
+    await db.ref('fishhack/deliveries/'+key).remove();
+    // 取引先の納品件数を-1
+    if(d&&d.client&&S.clients[d.client]){
+      const c=S.clients[d.client];
+      await db.ref('fishhack/clients/'+d.client+'/delivery_count').set(Math.max(0,(c.delivery_count||0)-1));
+    }
+    toast('納品を削除しました','ok');
+    closeModal('editModal');
+  }catch(e){console.error(e);toast('削除失敗：'+e.message,'err');}
+}
+
+function printEditDelivery(){
+  const key=document.getElementById('emKey').value;
+  const d=S.deliveries.find(x=>x._key===key);
+  if(!d){toast('納品が見つかりません','err');return;}
+  const rows=readEditItems().filter(r=>r.name);
+  const t=calcEditTotals();
+  const cid=document.getElementById('emClient').dataset.cid;
+  const nm=(S.clients[cid]||{}).name||cid;
+  const date=document.getElementById('emDate').value;
+  const denpyo=document.getElementById('emDenpyo').textContent;
+  const gyomu=document.getElementById('emGyomu').value||'';
+  const pay=document.getElementById('emPay').value||'';
+  printDeliveryDoc({nm,date,denpyo,gyomu,pay,rows,t});
+}
+
 /* ========== 納品履歴 ========== */
 function renderList(){
   const cid=document.getElementById('listClient').value;
@@ -857,7 +1057,7 @@ function renderList(){
     const itemNames=d.items.filter(i=>i.name!=='配送料').map(i=>i.name).join('・');
     return `<tr>
       <td class="nowrap">${esc(d.date||'—')}</td>
-      <td class="denpyo">${esc(d.denpyo||'—')}</td>
+      <td class="denpyo" style="cursor:pointer;text-decoration:underline" data-key="${esc(d._key||'')}" onclick="openEditDelivery(this.dataset.key)">${esc(d.denpyo||'—')}</td>
       <td>${esc(nm)}</td>
       <td class="muted" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(itemNames)}</td>
       <td class="num">${yen(t.sub)}</td>
@@ -1178,11 +1378,18 @@ function printDelivery(){
   const denpyo=document.getElementById('nvDenpyo').textContent;
   const gyomu=document.getElementById('nvGyomu').value||'';
   const pay=document.getElementById('nvPay').value||'';
+  // 配送料を品目行に統合
+  const allRows=rows.slice();
+  if(ship>0)allRows.push({qty:1,name:'配送料',origin:'',price:ship,disc:0,total:ship,tax:10});
+  printDeliveryDoc({nm,date,denpyo,gyomu,pay,rows:allRows,t});
+}
+
+// 納品書PDFの共通生成関数
+function printDeliveryDoc({nm,date,denpyo,gyomu,pay,rows,t}){
   let itemRows=rows.map(r=>`<tr>
     <td class="r">${r.qty}</td><td>${esc(r.name)}${r.tax===8?' <span class="mk">※</span>':''}</td>
     <td>${esc(r.origin)}</td><td class="r">${yen(r.price)}</td>
     <td class="r">${r.disc?('-'+yen(r.disc)):''}</td><td class="r">${yen(r.total)}</td></tr>`).join('');
-  if(ship>0)itemRows+=`<tr><td class="r">1</td><td>配送料</td><td></td><td class="r">${yen(ship)}</td><td></td><td class="r">${yen(ship)}</td></tr>`;
   const html=`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>納品書 ${denpyo}</title>
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
