@@ -115,6 +115,10 @@ header{
 }
 .itbl td{padding:5px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
 .itbl input,.itbl select{width:100%;border:1px solid transparent;background:transparent;padding:6px 7px;border-radius:5px}
+/* number入力のスピナー矢印を控えめにして数字の表示領域を確保 */
+.itbl input[type=number]{padding-right:4px}
+.itbl input[type=number]::-webkit-outer-spin-button,
+.itbl input[type=number]::-webkit-inner-spin-button{opacity:.35;margin-left:2px}
 .itbl input:hover,.itbl select:hover{border-color:var(--line)}
 .itbl input:focus,.itbl select:focus{border-color:var(--tide);background:#fff}
 .itbl .num{text-align:right;font-variant-numeric:tabular-nums}
@@ -506,7 +510,7 @@ header{
       <table class="itbl">
         <thead><tr>
           <th style="width:100px">納品日</th><th style="width:80px">伝票</th><th>品名</th>
-          <th style="width:70px">数量</th><th style="width:100px">単価</th><th style="width:64px">税</th>
+          <th style="width:88px">数量</th><th style="width:100px">単価</th><th style="width:64px">税</th>
           <th style="width:110px">金額</th><th style="width:32px"></th>
         </tr></thead>
         <tbody id="ieItems"></tbody>
@@ -812,6 +816,13 @@ function showPage(p){
 /* ========== ユーティリティ ========== */
 function todayStr(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
 function yen(n){return '¥'+Math.floor(n||0).toLocaleString('ja-JP');}
+// 数量表示: 小数があれば第2位まで、整数ならそのまま（1→"1", 1.5→"1.50", 1.53→"1.53"）
+function qtyFmt(q){
+  if(q===''||q==null)return '';
+  const n=parseFloat(q);
+  if(isNaN(n))return esc(String(q));
+  return Number.isInteger(n)?String(n):n.toFixed(2);
+}
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function toast(msg,kind){
   const t=document.createElement('div');t.className='toast'+(kind?' '+kind:'');t.textContent=msg;
@@ -1376,7 +1387,7 @@ function renderInvoiceItems(){
     });
   }else{
     // ヘッダーを明細用に
-    thead.innerHTML='<tr><th style="width:100px">納品日</th><th style="width:80px">伝票</th><th>品名</th><th style="width:70px">数量</th><th style="width:100px">単価</th><th style="width:64px">税</th><th style="width:110px">金額</th><th style="width:32px"></th></tr>';
+    thead.innerHTML='<tr><th style="width:100px">納品日</th><th style="width:80px">伝票</th><th>品名</th><th style="width:88px">数量</th><th style="width:100px">単価</th><th style="width:64px">税</th><th style="width:110px">金額</th><th style="width:32px"></th></tr>';
     _invoiceRows.forEach((r,idx)=>addInvoiceRow(r,idx));
   }
   calcInvoiceTotals();
@@ -1499,7 +1510,7 @@ function printInvoice(){
         <td class="nowrap">${esc(r.date)}</td>
         <td class="mono">${esc(r.denpyo)}</td>
         <td>${esc(r.name)}${r.tax===8?' <span class="mk">※</span>':''}</td>
-        <td class="r">${r.qty||''}</td>
+        <td class="r">${qtyFmt(r.qty)}</td>
         <td class="r">${r.price?yen(r.price):''}</td>
         <td class="r">${yen(r.total)}</td></tr>`;
     });
@@ -1523,7 +1534,7 @@ function printInvoice(){
     });
   }
   const detailHead=fmt==='detail'
-    ? '<tr><th style="width:80px">納品日</th><th style="width:70px">伝票</th><th>品名</th><th class="r" style="width:50px">数量</th><th class="r" style="width:80px">単価</th><th class="r" style="width:90px">金額</th></tr>'
+    ? '<tr><th style="width:80px">納品日</th><th style="width:70px">伝票</th><th>品名</th><th class="r" style="width:64px">数量</th><th class="r" style="width:80px">単価</th><th class="r" style="width:90px">金額</th></tr>'
     : '<tr><th style="width:90px">納品日</th><th style="width:80px">伝票番号</th><th>品目</th><th class="r" style="width:110px">金額（税抜）</th></tr>';
 
   const html=`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>請求書 ${nm} ${ym}</title>
@@ -1907,7 +1918,7 @@ function printDelivery(){
 // 納品書PDFの共通生成関数
 function printDeliveryDoc({nm,date,denpyo,gyomu,pay,rows,t}){
   let itemRows=rows.map(r=>`<tr>
-    <td class="r">${r.qty}</td><td>${esc(r.name)}${r.tax===8?' <span class="mk">※</span>':''}</td>
+    <td class="r">${qtyFmt(r.qty)}</td><td>${esc(r.name)}${r.tax===8?' <span class="mk">※</span>':''}</td>
     <td>${esc(r.origin)}</td><td class="r">${yen(r.price)}</td>
     <td class="r">${r.disc?('-'+yen(r.disc)):''}</td><td class="r">${yen(r.total)}</td></tr>`).join('');
   const html=`<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>納品書 ${denpyo}</title>
