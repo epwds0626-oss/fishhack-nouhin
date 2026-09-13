@@ -811,7 +811,7 @@ function showPage(p){
 
 /* ========== ユーティリティ ========== */
 function todayStr(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
-function yen(n){return '¥'+Math.round(n||0).toLocaleString('ja-JP');}
+function yen(n){return '¥'+Math.floor(n||0).toLocaleString('ja-JP');}
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function toast(msg,kind){
   const t=document.createElement('div');t.className='toast'+(kind?' '+kind:'');t.textContent=msg;
@@ -931,7 +931,7 @@ function readItems(){
     const price=parseFloat(tr.querySelector('.it-price').value)||0;
     const disc=parseFloat(tr.querySelector('.it-disc').value)||0;
     const tax=parseInt(tr.querySelector('.it-tax').value,10)||10;
-    const total=Math.round(qty*price-disc);
+    const total=Math.floor(qty*price-disc);
     return {tr,qty,name,origin,price,disc,tax,total};
   });
 }
@@ -1077,7 +1077,7 @@ function readEditItems(){
     const price=parseFloat(tr.querySelector('.em-price').value)||0;
     const disc=parseFloat(tr.querySelector('.em-disc').value)||0;
     const tax=parseInt(tr.querySelector('.em-tax').value,10)||8;
-    const total=Math.round(qty*price-disc);
+    const total=Math.floor(qty*price-disc);
     return {tr,qty,name,origin,price,disc,tax,total};
   });
 }
@@ -1232,7 +1232,7 @@ function renderList(){
 function dTotal(d){
   let sub=0,t8=0,t10=0;
   (d.items||[]).forEach(it=>{
-    const tot=it.total!=null?it.total:Math.round((it.qty||0)*(it.price||0)-(it.disc||0));
+    const tot=it.total!=null?Math.floor(it.total):Math.floor((it.qty||0)*(it.price||0)-(it.disc||0));
     sub+=tot;
     if(it.tax===8)t8+=tot;else t10+=tot;
   });
@@ -1250,7 +1250,7 @@ function invoiceData(cid,ym){
   let sub=0,t8=0,t10=0;
   dels.forEach(d=>{
     (d.items||[]).forEach(it=>{
-      const tot=it.total!=null?it.total:Math.round((it.qty||0)*(it.price||0)-(it.disc||0));
+      const tot=it.total!=null?Math.floor(it.total):Math.floor((it.qty||0)*(it.price||0)-(it.disc||0));
       sub+=tot;
       if(it.tax===8)t8+=tot;else t10+=tot;
     });
@@ -1341,7 +1341,7 @@ function openInvoice(cid){
   tb.innerHTML='';
   iv.dels.forEach(d=>{
     (d.items||[]).forEach(it=>{
-      const tot=it.total!=null?it.total:Math.round((it.qty||0)*(it.price||0)-(it.disc||0));
+      const tot=it.total!=null?Math.floor(it.total):Math.floor((it.qty||0)*(it.price||0)-(it.disc||0));
       addInvoiceRow({date:d.date,denpyo:d.denpyo,name:it.name,qty:it.qty,price:it.price,tax:it.tax,total:tot});
     });
   });
