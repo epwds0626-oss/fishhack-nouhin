@@ -207,6 +207,12 @@ header{
   .itbl{font-size:12px}
   .itbl th:nth-child(3),.itbl td:nth-child(3){display:none} /* 産地列を隠す */
 }
+
+/* ===== 店舗（チェーン店舗）機能 ===== */
+.store-badge{display:inline-block;padding:1px 7px;border-radius:4px;font-size:11px;font-weight:700;background:#e9f0f4;color:var(--sea-lit);margin-left:4px}
+#nvStoreField,#emStoreField{display:none}
+.inv-store-row td{background:#f4f8fa;font-weight:700;color:var(--sea)}
+.inv-store-sub td{border-top:1px solid var(--line-strong)}
 </style>
 </head>
 <body>
@@ -277,6 +283,10 @@ header{
           <div class="field">
             <label>取引先</label>
             <select id="nvClient" onchange="onClientChange()"></select>
+          </div>
+          <div class="field" id="nvStoreField">
+            <label>店舗 <span style="color:var(--rust)">*</span></label>
+            <select id="nvStore"><option value="">— 店舗を選択 —</option></select>
           </div>
           <div class="field">
             <label>納品日</label>
@@ -555,6 +565,7 @@ header{
       <input type="hidden" id="emKey">
       <div class="grid g4" style="gap:12px;margin-bottom:16px">
         <div class="field"><label>取引先</label><input type="text" id="emClient" readonly style="background:#f4f8fa"></div>
+        <div class="field" id="emStoreField"><label>店舗</label><select id="emStore"><option value="">— 店舗を選択 —</option></select></div>
         <div class="field"><label>納品日</label><input type="date" id="emDate"></div>
         <div class="field"><label>業務区分</label><input type="text" id="emGyomu"></div>
         <div class="field"><label>支払方法</label><input type="text" id="emPay"></div>
@@ -648,6 +659,11 @@ header{
         <div class="field">
           <label>メモ</label>
           <textarea id="cmMemo" rows="2" placeholder="配達時間の指定、特記事項など"></textarea>
+        </div>
+        <div class="field">
+          <label>店舗リスト（チェーン店の場合・1行に1店舗）</label>
+          <textarea id="cmStores" rows="4" placeholder="川口&#10;横浜&#10;鶴見&#10;（空欄なら店舗選択は表示されません）"></textarea>
+          <div class="muted" style="font-size:11px">ここに店舗名を1行ずつ入れると、この取引先の納品書作成時に店舗の選択が必須になり、請求書も店舗ごとの内訳＋全体合計で出せます。</div>
         </div>
         <div class="muted" style="font-size:12px">この取引先の伝票番号は「接頭辞＋連番」で自動採番されます（例：RK001）。既存の取引先と重複しない英字にしてください。</div>
         <div id="cmInfo" class="muted" style="font-size:13px"></div>
@@ -763,9 +779,30 @@ function setConn(ok){
   document.getElementById('connTxt').textContent=ok?'接続中':'未接続';
 }
 
+// 極楽湯タコフェア（柏川口水戸=GRYT）の店舗リスト初期値
+const GOKURAKU_DEFAULT_STORES=["川口","横浜","鶴見","上尾","柏","府中","多摩","彦根","青森","和光","金沢野々市","津","宇都宮","浜松","水戸","神田"];
+let _storesSeeded=false;
+async function seedGokurakuStores(){
+  if(_storesSeeded)return; 
+  const cid='極楽湯_柏川口水戸';
+  const c=S.clients[cid];
+  if(!c)return;
+  // storesが未設定（無い or 空配列）のときだけ初期投入
+  if(!Array.isArray(c.stores)||c.stores.length===0){
+    _storesSeeded=true;
+    try{
+      await db.ref('fishhack/clients/'+cid+'/stores').set(GOKURAKU_DEFAULT_STORES);
+      toast('極楽湯タコフェアに店舗リストを設定しました','ok');
+    }catch(e){console.error('seed stores fail',e);}
+  }else{
+    _storesSeeded=true;
+  }
+}
+
 function afterData(){
   const empty=Object.keys(S.clients).length===0;
   document.getElementById('setupBanner').style.display=empty?'flex':'none';
+  seedGokurakuStores(); // 極楽湯GRYTへ店舗初期投入（未設定時のみ）
   fillClientSelects();
   onClientChange();
   renderList(); renderItems(); renderClients(); renderBoard(); renderDash(); renderInvoiceList();
@@ -864,6 +901,17 @@ function nextDenpyo(clientId){
 function onClientChange(){
   const cid=document.getElementById('nvClient').value;
   document.getElementById('nvDenpyo').textContent=cid?nextDenpyo(cid):'—';
+  // 店舗selectの表示切替
+  const field=document.getElementById('nvStoreField');
+  const sel=document.getElementById('nvStore');
+  const stores=(S.clients[cid]||{}).stores||[];
+  if(cid && Array.isArray(stores) && stores.length){
+    sel.innerHTML='<option value="">— 店舗を選択 —</option>'+stores.map(s=>`<option value="${esc(s)}">${esc(s)}</option>`).join('');
+    field.style.display='';
+  }else{
+    sel.innerHTML='<option value="">— 店舗を選択 —</option>';
+    field.style.display='none';
+  }
 }
 
 /* ========== 品目入力行 ========== */
@@ -972,6 +1020,10 @@ function calcTotals(){
 async function saveDelivery(){
   const cid=document.getElementById('nvClient').value;
   if(!cid){toast('取引先を選んでください','err');return;}
+  // 店舗必須チェック（店舗リストを持つ取引先のみ）
+  const _stores=(S.clients[cid]||{}).stores||[];
+  const _store=document.getElementById('nvStore').value;
+  if(Array.isArray(_stores)&&_stores.length&&!_store){toast('店舗を選んでください','err');return;}
   const rows=readItems().filter(r=>r.name);
   if(!rows.length){toast('品目を1つ以上入力してください','err');return;}
   const ship=parseFloat(document.getElementById('nvShip').value)||0;
@@ -979,6 +1031,7 @@ async function saveDelivery(){
   if(ship>0)items.push({qty:1,name:'配送料',origin:'',price:ship,disc:0,total:ship,tax:10});
   const rec={
     client:cid,
+    store:_store||null,
     date:document.getElementById('nvDate').value,
     denpyo:document.getElementById('nvDenpyo').textContent,
     gyomu:document.getElementById('nvGyomu').value.trim()||null,
@@ -1002,6 +1055,7 @@ function resetForm(){
   document.getElementById('nvGyomu').value='';
   document.getElementById('nvPay').value='';
   document.getElementById('nvDate').value=todayStr();
+  const _ns=document.getElementById('nvStore'); if(_ns)_ns.value='';
   addItemRow(); onClientChange(); calcTotals();
 }
 
@@ -1015,6 +1069,18 @@ function openEditDelivery(key){
   const nm=(S.clients[d.client]||{}).name||d.client;
   document.getElementById('emClient').value=nm;
   document.getElementById('emClient').dataset.cid=d.client;
+  // 店舗select復元
+  const _emStores=(S.clients[d.client]||{}).stores||[];
+  const _emField=document.getElementById('emStoreField');
+  const _emSel=document.getElementById('emStore');
+  if(Array.isArray(_emStores)&&_emStores.length){
+    _emSel.innerHTML='<option value="">— 店舗を選択 —</option>'+_emStores.map(s=>`<option value="${esc(s)}">${esc(s)}</option>`).join('');
+    if(d.store&&!_emStores.includes(d.store))_emSel.innerHTML+=`<option value="${esc(d.store)}">${esc(d.store)}（旧）</option>`;
+    _emSel.value=d.store||'';
+    _emField.style.display='';
+  }else{
+    _emField.style.display='none';
+  }
   document.getElementById('emDate').value=d.date||'';
   document.getElementById('emGyomu').value=d.gyomu||'';
   document.getElementById('emPay').value=d.pay||'';
@@ -1117,6 +1183,7 @@ async function saveEditDelivery(){
   const items=rows.map(r=>({qty:r.qty,name:r.name,origin:r.origin,price:r.price,disc:r.disc,total:r.total,tax:r.tax}));
   const upd={
     date:document.getElementById('emDate').value,
+    store:(document.getElementById('emStore')?document.getElementById('emStore').value:'')||null,
     gyomu:document.getElementById('emGyomu').value.trim()||null,
     pay:document.getElementById('emPay').value.trim()||null,
     items,
@@ -1211,7 +1278,8 @@ function renderList(){
       const nm=((S.clients[d.client]||{}).name||d.client||'').toLowerCase();
       const denpyo=(d.denpyo||'').toLowerCase();
       const itemNames=(d.items||[]).map(it=>it.name||'').join(' ').toLowerCase();
-      if(!nm.includes(kw)&&!denpyo.includes(kw)&&!itemNames.includes(kw))return false;
+      const storeName=(d.store||'').toLowerCase();
+      if(!nm.includes(kw)&&!denpyo.includes(kw)&&!itemNames.includes(kw)&&!storeName.includes(kw))return false;
     }
     return true;
   }).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
@@ -1229,7 +1297,7 @@ function renderList(){
     return `<tr>
       <td class="nowrap">${esc(d.date||'—')}</td>
       <td class="denpyo" style="cursor:pointer;text-decoration:underline" data-key="${esc(d._key||'')}" onclick="openEditDelivery(this.dataset.key)">${esc(d.denpyo||'—')}</td>
-      <td>${esc(nm)}</td>
+      <td>${esc(nm)}${d.store?`<span class="store-badge">${esc(d.store)}</span>`:''}</td>
       <td class="muted" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(itemNames)}</td>
       <td class="num">${yen(t.sub)}</td>
       <td class="num nowrap">${yen(t.grand)}</td>
@@ -1353,9 +1421,11 @@ function openInvoice(cid){
   iv.dels.forEach(d=>{
     (d.items||[]).forEach(it=>{
       const tot=it.total!=null?Math.floor(it.total):Math.floor((it.qty||0)*(it.price||0)-(it.disc||0));
-      _invoiceRows.push({date:d.date,denpyo:d.denpyo,name:it.name,qty:it.qty,price:it.price,tax:it.tax,total:tot});
+      _invoiceRows.push({date:d.date,denpyo:d.denpyo,store:d.store||'',name:it.name,qty:it.qty,price:it.price,tax:it.tax,total:tot});
     });
   });
+  // この取引先が店舗を持つか記録（請求書PDFで店舗別に出すため）
+  window._invHasStores = Array.isArray((S.clients[cid]||{}).stores) && (S.clients[cid]||{}).stores.length>0;
   renderInvoiceItems();
   document.getElementById('invEditModal').classList.add('on');
 }
@@ -1504,34 +1574,74 @@ function printInvoice(){
   const issueDate=`${y}年${parseInt(m,10)}月${lastDay}日`;
 
   let bodyRows='';
+  const _hasStores = window._invHasStores && rows.some(r=>r.store);
   if(fmt==='detail'){
-    rows.forEach(r=>{
-      bodyRows+=`<tr>
-        <td class="nowrap">${esc(r.date)}</td>
-        <td class="mono">${esc(r.denpyo)}</td>
-        <td>${esc(r.name)}${r.tax===8?' <span class="mk">※</span>':''}</td>
-        <td class="r">${qtyFmt(r.qty)}</td>
-        <td class="r">${r.price?yen(r.price):''}</td>
-        <td class="r">${yen(r.total)}</td></tr>`;
-    });
+    if(_hasStores){
+      // 店舗ごとにグループ化して小計、最後に全体はsum欄で
+      const byStore={};
+      rows.forEach(r=>{const k=r.store||'（店舗未設定）';(byStore[k]=byStore[k]||[]).push(r);});
+      Object.keys(byStore).forEach(store=>{
+        const list=byStore[store];
+        let ssub=0;
+        bodyRows+=`<tr class="inv-store-row"><td colspan="6" style="background:#eef5f9;font-weight:700;color:#12395e;padding:6px 9px">◆ ${esc(store)}店</td></tr>`;
+        list.forEach(r=>{
+          ssub+=r.total;
+          bodyRows+=`<tr>
+            <td class="nowrap">${esc(r.date)}</td>
+            <td class="mono">${esc(r.denpyo)}</td>
+            <td>${esc(r.name)}${r.tax===8?' <span class="mk">※</span>':''}</td>
+            <td class="r">${qtyFmt(r.qty)}</td>
+            <td class="r">${r.price?yen(r.price):''}</td>
+            <td class="r">${yen(r.total)}</td></tr>`;
+        });
+        bodyRows+=`<tr class="inv-store-sub"><td colspan="5" class="r" style="font-weight:700;border-top:1px solid #94a9b6">${esc(store)}店 小計（税抜）</td><td class="r" style="font-weight:700;border-top:1px solid #94a9b6">${yen(ssub)}</td></tr>`;
+      });
+    }else{
+      rows.forEach(r=>{
+        bodyRows+=`<tr>
+          <td class="nowrap">${esc(r.date)}</td>
+          <td class="mono">${esc(r.denpyo)}</td>
+          <td>${esc(r.name)}${r.tax===8?' <span class="mk">※</span>':''}</td>
+          <td class="r">${qtyFmt(r.qty)}</td>
+          <td class="r">${r.price?yen(r.price):''}</td>
+          <td class="r">${yen(r.total)}</td></tr>`;
+      });
+    }
   }else{
-    // サマリ型：伝票番号ごとにまとめる
+    // サマリ型：伝票番号ごとにまとめる（店舗があれば店舗ごとに区切る）
     const byDenpyo={};
     rows.forEach(r=>{
-      const key=r.denpyo||('__'+r.name);
-      if(!byDenpyo[key])byDenpyo[key]={date:r.date,denpyo:r.denpyo,names:[],sum:0};
+      const key=(r.store||'')+'|'+(r.denpyo||('__'+r.name));
+      if(!byDenpyo[key])byDenpyo[key]={date:r.date,denpyo:r.denpyo,store:r.store||'',names:[],sum:0};
       byDenpyo[key].names.push(r.name);
       byDenpyo[key].sum+=r.total;
     });
-    Object.values(byDenpyo).forEach(g=>{
-      const names=g.names.filter(n=>n!=='配送料').slice(0,4).join('・');
-      const more=g.names.filter(n=>n!=='配送料').length>4?' 他':'';
-      bodyRows+=`<tr>
-        <td class="nowrap">${esc(g.date)}</td>
-        <td class="mono">${esc(g.denpyo)}</td>
-        <td>${esc(names)}${more}</td>
-        <td class="r">${yen(g.sum)}</td></tr>`;
-    });
+    const groups=Object.values(byDenpyo);
+    if(_hasStores){
+      const byStore={};
+      groups.forEach(g=>{const k=g.store||'（店舗未設定）';(byStore[k]=byStore[k]||[]).push(g);});
+      Object.keys(byStore).forEach(store=>{
+        let ssub=0;
+        bodyRows+=`<tr class="inv-store-row"><td colspan="4" style="background:#eef5f9;font-weight:700;color:#12395e;padding:6px 9px">◆ ${esc(store)}店</td></tr>`;
+        byStore[store].forEach(g=>{
+          ssub+=g.sum;
+          const names=g.names.filter(n=>n!=='配送料').slice(0,4).join('・');
+          const more=g.names.filter(n=>n!=='配送料').length>4?' 他':'';
+          bodyRows+=`<tr><td class="nowrap">${esc(g.date)}</td><td class="mono">${esc(g.denpyo)}</td><td>${esc(names)}${more}</td><td class="r">${yen(g.sum)}</td></tr>`;
+        });
+        bodyRows+=`<tr class="inv-store-sub"><td colspan="3" class="r" style="font-weight:700;border-top:1px solid #94a9b6">${esc(store)}店 小計（税抜）</td><td class="r" style="font-weight:700;border-top:1px solid #94a9b6">${yen(ssub)}</td></tr>`;
+      });
+    }else{
+      groups.forEach(g=>{
+        const names=g.names.filter(n=>n!=='配送料').slice(0,4).join('・');
+        const more=g.names.filter(n=>n!=='配送料').length>4?' 他':'';
+        bodyRows+=`<tr>
+          <td class="nowrap">${esc(g.date)}</td>
+          <td class="mono">${esc(g.denpyo)}</td>
+          <td>${esc(names)}${more}</td>
+          <td class="r">${yen(g.sum)}</td></tr>`;
+      });
+    }
   }
   const detailHead=fmt==='detail'
     ? '<tr><th style="width:80px">納品日</th><th style="width:70px">伝票</th><th>品名</th><th class="r" style="width:64px">数量</th><th class="r" style="width:80px">単価</th><th class="r" style="width:90px">金額</th></tr>'
@@ -1656,6 +1766,7 @@ function openClientEdit(id){
     const c=S.clients[id];
     document.getElementById('cmTitle').textContent='取引先を編集';
     fields.forEach(f=>{document.getElementById('cm'+f).value=c[keys[f]]||'';});
+    document.getElementById('cmStores').value=(Array.isArray(c.stores)?c.stores.join('\n'):'');
     const cnt=S.deliveries.filter(d=>d.client===id).length;
     if(cnt>0){
       del.style.display='none';
@@ -1667,6 +1778,7 @@ function openClientEdit(id){
   }else{
     document.getElementById('cmTitle').textContent='取引先を追加';
     fields.forEach(f=>{document.getElementById('cm'+f).value='';});
+    document.getElementById('cmStores').value='';
     del.style.display='none';
     info.textContent='';
   }
@@ -1691,7 +1803,8 @@ async function saveClient(){
     open:document.getElementById('cmOpen').value||'',
     closing:document.getElementById('cmClosing').value||'',
     category:document.getElementById('cmCategory').value.trim()||'',
-    memo:document.getElementById('cmMemo').value.trim()||''
+    memo:document.getElementById('cmMemo').value.trim()||'',
+    stores:document.getElementById('cmStores').value.split('\n').map(s=>s.trim()).filter(s=>s)
   };
   try{
     if(id){
