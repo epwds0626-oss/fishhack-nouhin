@@ -210,7 +210,6 @@ header{
 
 /* ===== 店舗（チェーン店舗）機能 ===== */
 .store-badge{display:inline-block;padding:1px 7px;border-radius:4px;font-size:11px;font-weight:700;background:#e9f0f4;color:var(--sea-lit);margin-left:4px}
-#nvStoreField,#emStoreField{display:none}
 .inv-store-row td{background:#f4f8fa;font-weight:700;color:var(--sea)}
 .inv-store-sub td{border-top:1px solid var(--line-strong)}
 </style>
@@ -284,7 +283,7 @@ header{
             <label>取引先</label>
             <select id="nvClient" onchange="onClientChange()"></select>
           </div>
-          <div class="field" id="nvStoreField">
+          <div class="field" id="nvStoreField" style="display:none">
             <label>店舗 <span style="color:var(--rust)">*</span></label>
             <select id="nvStore"><option value="">— 店舗を選択 —</option></select>
           </div>
@@ -565,7 +564,7 @@ header{
       <input type="hidden" id="emKey">
       <div class="grid g4" style="gap:12px;margin-bottom:16px">
         <div class="field"><label>取引先</label><input type="text" id="emClient" readonly style="background:#f4f8fa"></div>
-        <div class="field" id="emStoreField"><label>店舗</label><select id="emStore"><option value="">— 店舗を選択 —</option></select></div>
+        <div class="field" id="emStoreField" style="display:none"><label>店舗</label><select id="emStore"><option value="">— 店舗を選択 —</option></select></div>
         <div class="field"><label>納品日</label><input type="date" id="emDate"></div>
         <div class="field"><label>業務区分</label><input type="text" id="emGyomu"></div>
         <div class="field"><label>支払方法</label><input type="text" id="emPay"></div>
