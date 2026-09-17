@@ -1571,6 +1571,12 @@ function printInvoice(){
   const lastDay=new Date(parseInt(y,10),parseInt(m,10),0).getDate();
   const period=`${y}年${parseInt(m,10)}月1日 〜 ${y}年${parseInt(m,10)}月${lastDay}日`;
   const issueDate=`${y}年${parseInt(m,10)}月${lastDay}日`;
+  // お支払期限：月末締め・翌月末払い（12月分→翌年1月末）
+  const _mNum=parseInt(m,10);
+  const dueYear=_mNum===12?parseInt(y,10)+1:parseInt(y,10);
+  const dueMonth=_mNum===12?1:_mNum+1;
+  const dueLastDay=new Date(dueYear,dueMonth,0).getDate();
+  const dueDate=`${dueYear}年${dueMonth}月${dueLastDay}日`;
 
   let bodyRows='';
   const _hasStores = window._invHasStores && rows.some(r=>r.store);
@@ -1712,7 +1718,9 @@ function printInvoice(){
     ${fmt==='detail'?'<div class="taxnote">※印は軽減税率（8%）対象品目です。</div>':''}
     <div class="bank">
       <b>お振込先</b><br>
-      （銀行名・支店名・口座番号をここに記載）<br>
+      筑波銀行　大洗支店（店番 125）　普通 1047660<br>
+      口座名義：株式会社One Table Design<br>
+      <b style="color:#12395e">お支払期限：${dueDate}</b>　<span style="color:#5a6b78">（月末締め・翌月末払い）</span><br>
       ※お手数ですが振込手数料は御社負担にてお願いいたします。
     </div>
   </body></html>`;
