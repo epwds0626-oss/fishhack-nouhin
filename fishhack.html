@@ -468,8 +468,12 @@ header{
   <div class="page" id="page-dash">
     <div class="page-hd"><h1>集計</h1><div class="sub">取引先をまたいだ売上と品目の全体像</div>
       <div class="sp"></div>
+      <div class="field" style="min-width:120px;margin-right:10px">
+        <label style="font-size:11px">金額</label>
+        <select id="dashBasis" onchange="renderDash()"><option value="gross">税込（請求額）</option><option value="net">税抜</option></select>
+      </div>
       <div class="field" style="min-width:150px">
-        <label style="font-size:11px">会計年度（4月始まり）</label>
+        <label style="font-size:11px">会計年度（10月始まり）</label>
         <select id="dashFy" onchange="renderDash()"></select>
       </div>
     </div>
@@ -484,11 +488,15 @@ header{
     </div>
 
     <div class="slip">
-      <div class="slip-hd"><h2>月別売上（税抜・年度内）</h2></div>
+      <div class="slip-hd"><h2 id="dashYearCmpTitle">月 × 年度 比較</h2></div>
+      <div class="slip-bd"><div style="overflow-x:auto"><table class="list" id="dashYearCmp"></table></div></div>
+    </div>
+    <div class="slip">
+      <div class="slip-hd"><h2 id="dashMonthlyTitle">月別売上（年度内）</h2></div>
       <div class="slip-bd"><div style="overflow-x:auto"><table class="list" id="dashMonthly"></table></div></div>
     </div>
     <div class="slip">
-      <div class="slip-hd"><h2>取引先別 累計売上（全期間）</h2></div>
+      <div class="slip-hd"><h2 id="dashClientsTitle">取引先別 累計売上（全期間）</h2></div>
       <div class="slip-bd"><div style="overflow-x:auto"><table class="list" id="dashClients"></table></div></div>
     </div>
   </div>
@@ -1949,33 +1957,37 @@ function renderDash(){
     if(fyList.includes(curFy))fySel.value=curFy;
   }
   const selFy=parseInt(fySel.value||curFy,10);
+  // 金額基準：税込（請求額＝Excel集計と同じ）/ 税抜
+  const gross=(document.getElementById('dashBasis')||{}).value!=='net';
+  const BL=gross?'税込':'税抜';
+  const amt=d=>{const t=dTotal(d);return gross?t.grand:t.sub;};
 
   // 全体統計
   const now=new Date();const thisYm=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');
   let grandTotal=0,thisMonth=0;const clientSalesAll={};
   S.deliveries.forEach(d=>{
-    const t=dTotal(d);grandTotal+=t.sub;
-    clientSalesAll[d.client]=(clientSalesAll[d.client]||0)+t.sub;
-    if(d.date&&d.date.slice(0,7)===thisYm)thisMonth+=t.sub;
+    const t=amt(d);grandTotal+=t;
+    clientSalesAll[d.client]=(clientSalesAll[d.client]||0)+t;
+    if(d.date&&d.date.slice(0,7)===thisYm)thisMonth+=t;
   });
   // 選択年度の売上
   let fyTotal=0;
-  S.deliveries.forEach(d=>{if(fiscalYear(d.date)===selFy)fyTotal+=dTotal(d).sub;});
+  S.deliveries.forEach(d=>{if(fiscalYear(d.date)===selFy)fyTotal+=amt(d);});
   document.getElementById('dashStats').innerHTML=`
-    <div class="stat"><div class="k">今月の売上（税抜）</div><div class="v">${yen(thisMonth)}</div></div>
-    <div class="stat"><div class="k">${selFy}年度 売上（税抜）</div><div class="v">${yen(fyTotal)}</div></div>
-    <div class="stat"><div class="k">累計売上（全期間）</div><div class="v">${yen(grandTotal)}</div></div>
+    <div class="stat"><div class="k">今月の売上（${BL}）</div><div class="v">${yen(thisMonth)}</div></div>
+    <div class="stat"><div class="k">${selFy}年度 売上（${BL}）</div><div class="v">${yen(fyTotal)}</div></div>
+    <div class="stat"><div class="k">累計売上（全期間・${BL}）</div><div class="v">${yen(grandTotal)}</div></div>
     <div class="stat"><div class="k">納品件数</div><div class="v">${S.deliveries.length.toLocaleString()}<small> 件</small></div></div>`;
 
   // ===== クロス集計: 取引先 × 月（選択年度） =====
-  document.getElementById('crossTitle').textContent=`取引先 × 月 クロス集計（${selFy}年度）`;
-  // cross[client][month] = 税抜合計
+  document.getElementById('crossTitle').textContent=`取引先 × 月 クロス集計（${selFy}年度・${BL}）`;
+  // cross[client][month] = 合計（税込 or 税抜）
   const cross={};const monthTotals={};FY_MONTHS.forEach(m=>monthTotals[m]=0);
   const clientYearTotal={};
   S.deliveries.forEach(d=>{
     if(fiscalYear(d.date)!==selFy)return;
     const m=parseInt(d.date.slice(5,7),10);
-    const t=dTotal(d).sub;
+    const t=amt(d);
     if(!cross[d.client])cross[d.client]={};
     cross[d.client][m]=(cross[d.client][m]||0)+t;
     monthTotals[m]+=t;
@@ -1983,7 +1995,7 @@ function renderDash(){
   });
   // 年度内で売上がある取引先を年間合計の降順で
   const activeClients=Object.keys(cross).sort((a,b)=>(clientYearTotal[b]||0)-(clientYearTotal[a]||0));
-  window._crossCache={selFy,cross,monthTotals,clientYearTotal,activeClients}; // CSV用
+  window._crossCache={selFy,cross,monthTotals,clientYearTotal,activeClients,BL}; // CSV用
 
   const head=`<thead><tr><th style="position:sticky;left:0;background:#f4f8fa;z-index:2">取引先</th>`
     +FY_MONTHS.map(m=>`<th class="num">${m}月</th>`).join('')
@@ -2001,6 +2013,24 @@ function renderDash(){
     +`<td class="num" style="font-weight:800;color:var(--sea);border-top:2px solid var(--line-strong);border-left:2px solid var(--line-strong)">${yen(fyTotal)}</td></tr></tfoot>`;
   document.getElementById('dashCross').innerHTML=head+`<tbody>${rows}</tbody>`+foot;
 
+  // ===== 月 × 年度 比較（Excelの「行=月 / 列=年度」ピボットと同じ形） =====
+  const fyAsc=[...fyList].sort((a,b)=>a-b);
+  const ym={};const fyTot={};let allTot=0;
+  S.deliveries.forEach(d=>{
+    const fy=fiscalYear(d.date);if(fy==null)return;
+    const m=parseInt(d.date.slice(5,7),10);const v=amt(d);
+    ym[m]=ym[m]||{};ym[m][fy]=(ym[m][fy]||0)+v;
+    fyTot[fy]=(fyTot[fy]||0)+v;allTot+=v;
+  });
+  document.getElementById('dashYearCmpTitle').textContent=`月 × 年度 比較（${BL}）`;
+  const ycHead=`<thead><tr><th>月</th>${fyAsc.map(fy=>`<th class="num">${fy}年度</th>`).join('')}<th class="num" style="border-left:2px solid var(--line-strong)">総計</th></tr></thead>`;
+  const ycRows=FY_MONTHS.map(m=>{
+    const r=ym[m]||{};const rt=Object.values(r).reduce((a,b)=>a+b,0);
+    return `<tr><td class="nowrap" style="font-weight:600">${m}月</td>${fyAsc.map(fy=>`<td class="num ${r[fy]?'':'muted'}">${r[fy]?Math.round(r[fy]).toLocaleString():'·'}</td>`).join('')}<td class="num" style="font-weight:700;border-left:2px solid var(--line-strong)">${rt?Math.round(rt).toLocaleString():'·'}</td></tr>`;
+  }).join('');
+  const ycFoot=`<tfoot><tr><td style="font-weight:700">総計</td>${fyAsc.map(fy=>`<td class="num" style="font-weight:700;border-top:2px solid var(--line-strong)">${Math.round(fyTot[fy]||0).toLocaleString()}</td>`).join('')}<td class="num" style="font-weight:800;color:var(--sea);border-top:2px solid var(--line-strong);border-left:2px solid var(--line-strong)">${yen(allTot)}</td></tr></tfoot>`;
+  document.getElementById('dashYearCmp').innerHTML=ycHead+`<tbody>${ycRows}</tbody>`+ycFoot;
+
   // 月別（選択年度、棒グラフ）
   const maxM=Math.max(1,...Object.values(monthTotals));
   const mrows=FY_MONTHS.map(m=>{
@@ -2011,14 +2041,14 @@ function renderDash(){
       <td style="width:50%"><div style="background:var(--foam);border-radius:4px;height:16px"><div style="width:${bar}%;height:100%;background:linear-gradient(90deg,var(--tide),var(--sea-lit));border-radius:4px"></div></div></td>
       <td class="num nowrap" style="font-weight:700">${yen(v)}</td></tr>`;
   }).join('');
-  document.getElementById('dashMonthly').innerHTML=`<thead><tr><th>月</th><th>構成</th><th class="num">売上（税抜）</th></tr></thead><tbody>${mrows}</tbody>`;
+  document.getElementById('dashMonthly').innerHTML=`<thead><tr><th>月</th><th>構成</th><th class="num">売上（${BL}）</th></tr></thead><tbody>${mrows}</tbody>`;
 
   // 取引先別 累計（全期間）
   const crows=Object.keys(clientSalesAll).sort((a,b)=>clientSalesAll[b]-clientSalesAll[a]).map((cid,i)=>{
     const nm=(S.clients[cid]||{}).name||cid;
     return `<tr><td class="num muted" style="width:30px">${i+1}</td><td style="font-weight:600">${esc(nm)}</td><td class="num nowrap">${yen(clientSalesAll[cid])}</td></tr>`;
   }).join('');
-  document.getElementById('dashClients').innerHTML=`<thead><tr><th></th><th>取引先</th><th class="num">累計売上（税抜）</th></tr></thead><tbody>${crows}</tbody>`;
+  document.getElementById('dashClients').innerHTML=`<thead><tr><th></th><th>取引先</th><th class="num">累計売上（${BL}）</th></tr></thead><tbody>${crows}</tbody>`;
 }
 
 /* クロス集計CSV出力 */
@@ -2037,7 +2067,7 @@ function exportCross(){
   const blob=new Blob([bom+lines.join('\r\n')],{type:'text/csv'});
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');
-  a.href=url;a.download=`FishHack_集計_${c.selFy}年度.csv`;a.click();
+  a.href=url;a.download=`FishHack_集計_${c.selFy}年度_${c.BL||'税込'}.csv`;a.click();
   URL.revokeObjectURL(url);
   toast('CSVを出力しました','ok');
 }
