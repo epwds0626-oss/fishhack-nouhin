@@ -500,14 +500,14 @@ header{
       <div class="slip-bd"><div style="overflow-x:auto"><table class="list" id="dashClients"></table></div></div>
     </div>
     <div class="slip" id="xlSlip">
-      <div class="slip-hd"><h2>Excel突合・取込（卸売請求書）</h2>
+      <div class="slip-hd"><h2>Excel突合・取込（納品書データ）</h2>
         <div class="sp"></div>
         <select id="xlFy" style="margin-right:8px"></select>
         <input type="file" id="xlFile" accept=".xlsx,.xlsm,.xls" style="display:none" onchange="xlLoad(this.files[0]);this.value=''">
         <button class="btn btn-sm" onclick="document.getElementById('xlFile').click()">Excelを選ぶ</button>
       </div>
       <div class="slip-bd">
-        <div class="muted" style="font-size:12px;margin-bottom:8px">「卸売請求書」シートの伝票番号でアプリと突き合わせます。アプリに無い伝票は「Excel取込分」1行（税率8%・納品日＝請求月の1日）で追加できます。金額が違う伝票は一覧表示のみです。</div>
+        <div class="muted" style="font-size:12px;margin-bottom:8px">Excelの納品番号（伝票番号）でアプリの納品書と突き合わせます。見出しに「店名・納品番号・請求額・会計年度」があるシートを自動で探します。アプリに無い伝票は「Excel取込分」1行（税率8%・納品日＝請求月の1日）で追加できます。金額が違う伝票は一覧表示のみです。</div>
         <div id="xlResult"></div>
       </div>
     </div>
@@ -2064,236 +2064,122 @@ function renderDash(){
 }
 
 /* ========== Excel突合・取込 ========== */
-
 // Excelの店名 → アプリの取引先ID（伝票接頭辞と両方一致したときだけ取込対象）
-
 const XL_NAME_MAP={
-
   'COLK':'COLK','cable':'Cable','BLEU×BLEU':'BLUE_BLEU','スタイルオマ':'stile_oma',
-
   'リストランテ勘十郎':'リストランテ勘十郎','ときわ邸M-GARDEN':'ときわ邸_M-GARDEN','ウエストヒルズ':'ウエストヒルズ',
-
   '極楽湯水戸店':'極楽湯_水戸店','極楽湯和光店':'極楽湯_和光店','極楽湯本店':'極楽湯_柏川口水戸','極楽湯蛸フェアー':'極楽湯_柏川口水戸',
-
   "Doggy'sCoastOarai":'Doggy_s_Coast_Oarai','Lame':'Lame','ARIATERRA':'ARIATERRA','清香庵':'清香庵'
-
 };
-
 let _xl=null;
-
 function xlNorm(s){return String(s||'').replace(/[\s　]/g,'');}
-
 function xlKey(no){const m=String(no||'').trim().match(/^([A-Za-z]+)0*(\d+)[A-Za-z]*$/);return m?m[1].toUpperCase()+parseInt(m[2],10):null;}
-
 function xlLib(){
-
   if(window.XLSX)return Promise.resolve();
-
   return new Promise((ok,ng)=>{const sc=document.createElement('script');
-
     sc.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
-
     sc.onload=ok;sc.onerror=()=>ng(new Error('Excel読込ライブラリを取得できません'));document.head.appendChild(sc);});
-
 }
-
 async function xlLoad(file){
-
   if(!file)return;
-
   const out=document.getElementById('xlResult');out.innerHTML='<div class="muted">読み込み中…</div>';
-
   try{
-
     await xlLib();
-
     const wb=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:true});
-
-    const ws=wb.Sheets['卸売請求書']||wb.Sheets[wb.SheetNames.find(n=>n.includes('請求'))];
-
-    if(!ws)throw new Error('「卸売請求書」シートが見つかりません');
-
+    const hasHead=n=>{const a=XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1,defval:null})[0]||[];const h=a.map(x=>String(x||'').trim());return ['店名','納品番号','請求額','会計年度'].every(k=>h.includes(k));};
+    const sn=wb.SheetNames.find(hasHead);
+    const ws=sn?wb.Sheets[sn]:null;
+    if(!ws)throw new Error('「店名・納品番号・請求額・会計年度」の見出しがあるシートが見つかりません');
     const aoa=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:null});
-
     const h=aoa[0].map(x=>String(x||'').trim());
-
     const ci=n=>h.indexOf(n);
-
     const cN=ci('店名'),cD=ci('請求月'),cNo=ci('納品番号'),cA=ci('請求額'),cFy=ci('会計年度'),cM=ci('月'),cY=ci('年');
-
     if(cN<0||cNo<0||cA<0||cFy<0)throw new Error('見出し（店名・納品番号・請求額・会計年度）が見つかりません');
-
     const rows=[];
-
     for(let i=1;i<aoa.length;i++){
-
       const r=aoa[i];if(!r)continue;
-
       if(String(r[cN]||'').startsWith('合計 /'))break;
-
       const amt=r[cA];if(typeof amt!=='number'||!amt||!r[cFy])continue;
-
       const key=xlKey(r[cNo]);if(!key)continue;
-
       let y=null,m=null;
-
       if(cY>=0&&cM>=0&&r[cY]&&r[cM]){y=parseInt(r[cY],10);m=parseInt(r[cM],10);}
-
       else if(r[cD] instanceof Date){const d=new Date(r[cD].getTime()+12*3600e3);y=d.getFullYear();m=d.getMonth()+1;}
-
       if(!y||!m)continue;
-
       rows.push({name:String(r[cN]),no:String(r[cNo]).trim(),key,amt:Math.round(amt),fy:parseInt(r[cFy],10),ym:y+'-'+String(m).padStart(2,'0')});
-
     }
-
     _xl={rows};
-
     const fys=[...new Set(rows.map(r=>r.fy))].filter(Boolean).sort((a,b)=>b-a);
-
     const sel=document.getElementById('xlFy');
-
     sel.innerHTML=fys.map(f=>`<option value="${f}">${f}年度</option>`).join('')+'<option value="all">全期間</option>';
-
     const cur=parseInt(document.getElementById('dashFy').value,10);if(fys.includes(cur))sel.value=cur;
-
     sel.onchange=xlRender;
-
     xlRender();
-
   }catch(e){console.error(e);out.innerHTML=`<div style="color:#b3261e">${esc(e.message)}</div>`;}
-
 }
-
 function xlRender(){
-
   const out=document.getElementById('xlResult');if(!_xl){out.innerHTML='';return;}
-
   const f=document.getElementById('xlFy').value;
-
   const rows=_xl.rows.filter(r=>f==='all'||r.fy===parseInt(f,10));
-
   const pre2c={};Object.keys(S.clients).forEach(id=>{const p=(S.clients[id].prefix||'').toUpperCase();if(p)pre2c[p]=id;});
-
   const app={};S.deliveries.forEach(d=>{const k=xlKey(d.denpyo);if(k)(app[k]=app[k]||[]).push(d);});
-
   const grp={};rows.forEach(r=>(grp[r.key]=grp[r.key]||[]).push(r));
-
   const add=[],diff=[],skip=[];
-
   Object.keys(grp).forEach(k=>{
-
     const rs=grp[k];const xt=rs.reduce((a,r)=>a+r.amt,0);
-
     const pre=k.match(/^[A-Z]+/)[0];const cidP=pre2c[pre];const cidN=XL_NAME_MAP[xlNorm(rs[0].name)];
-
     if(app[k]){
-
       const at=app[k].reduce((a,d)=>a+dTotal(d).grand,0);
-
       if(Math.abs(at-xt)>10)diff.push({k,rs,xt,at,ds:app[k]});
-
     }else if(cidP&&cidN&&cidP===cidN){rs.forEach(r=>add.push({...r,cid:cidP}));}
-
     else skip.push({k,rs,xt,why:!cidP?'接頭辞がアプリに無い':!cidN?'店名の対応なし':'店名と接頭辞の取引先が不一致'});
-
   });
-
   add.sort((a,b)=>a.ym.localeCompare(b.ym)||a.no.localeCompare(b.no));
-
   diff.sort((a,b)=>a.rs[0].ym.localeCompare(b.rs[0].ym));
-
   _xl.add=add;
-
   const cn=id=>esc((S.clients[id]||{}).name||id);
-
   const addSum=add.reduce((a,r)=>a+r.amt,0);
-
   let h=`<h3 style="margin:6px 0">① アプリに無い伝票：${add.length}件（税込 ${yen(addSum)}）</h3>`;
-
   if(add.length){
-
     h+=`<div style="overflow-x:auto"><table class="list"><thead><tr><th>請求月</th><th>伝票番号</th><th>取引先</th><th class="num">請求額（税込）</th></tr></thead><tbody>`
-
       +add.map(r=>`<tr><td>${r.ym}</td><td class="denpyo">${esc(r.no)}</td><td>${cn(r.cid)}</td><td class="num">${yen(r.amt)}</td></tr>`).join('')
-
       +`</tbody></table></div><div style="margin:10px 0 18px"><button class="btn" onclick="xlImport()">この${add.length}件をアプリに追加</button></div>`;
-
   }else h+='<div class="muted" style="margin-bottom:14px">ありません</div>';
-
   h+=`<h3 style="margin:6px 0">② 金額が違う伝票：${diff.length}件（一覧のみ・アプリ側で修正してください）</h3>`;
-
   if(diff.length){
-
     h+=`<div style="overflow-x:auto"><table class="list"><thead><tr><th>請求月</th><th>伝票番号（Excel）</th><th>取引先</th><th class="num">Excel</th><th class="num">アプリ</th><th class="num">差</th><th>アプリの登録</th></tr></thead><tbody>`
-
       +diff.map(x=>{const dup=x.ds.length>1&&x.ds.every(d=>d.denpyo===x.ds[0].denpyo);
-
         return `<tr><td>${x.rs[0].ym}</td><td class="denpyo">${x.rs.map(r=>esc(r.no)).join('<br>')}</td><td>${cn(x.ds[0].client)}</td>
-
         <td class="num">${yen(x.xt)}</td><td class="num">${yen(x.at)}</td><td class="num" style="font-weight:700;color:${x.at<x.xt?'#b3261e':'#1b6b3a'}">${(x.at-x.xt>0?'+':'')+Math.round(x.at-x.xt).toLocaleString()}</td>
-
         <td style="font-size:12px">${x.ds.map(d=>`<a href="javascript:void 0" data-key="${esc(d._key||'')}" onclick="openEditDelivery(this.dataset.key)">${esc(d.denpyo)} ${esc(d.date||'')}</a>`).join('<br>')}${dup?'<br><b style="color:#b3261e">同じ番号が2件（二重登録？）</b>':''}</td></tr>`;}).join('')
-
       +`</tbody></table></div>`;
-
   }else h+='<div class="muted">ありません</div>';
-
   if(skip.length){
-
     h+=`<h3 style="margin:18px 0 6px">③ 取引先を特定できず取り込まない伝票：${skip.length}件</h3><div style="overflow-x:auto"><table class="list"><thead><tr><th>請求月</th><th>伝票番号</th><th>Excel店名</th><th class="num">請求額</th><th>理由</th></tr></thead><tbody>`
-
       +skip.map(x=>`<tr><td>${x.rs[0].ym}</td><td class="denpyo">${x.rs.map(r=>esc(r.no)).join('<br>')}</td><td>${esc(x.rs[0].name)}</td><td class="num">${yen(x.xt)}</td><td class="muted" style="font-size:12px">${x.why}</td></tr>`).join('')
-
       +`</tbody></table></div>`;
-
   }
-
   out.innerHTML=h;
-
 }
-
 // 税込額 g に最も近くなる税抜額（8%・切り捨て）を求める
-
 function xlNet(g){let t=Math.round(g/1.08);for(const c of [t,t-1,t+1,t-2,t+2])if(c+Math.floor(c*0.08)===g)return c;return t;}
-
 async function xlImport(){
-
   const add=(_xl&&_xl.add)||[];if(!add.length)return;
-
   if(!db){toast('Firebase未接続','err');return;}
-
   if(!confirm(`${add.length}件の伝票を「Excel取込分」としてアプリに追加します。よろしいですか？`))return;
-
   try{
-
     const upd={};const cnt={};const base=Date.now();
-
     add.forEach((r,i)=>{
-
       const t=xlNet(r.amt);
-
       upd['dx'+base+'_'+String(i).padStart(3,'0')]={client:r.cid,store:null,date:r.ym+'-01',denpyo:r.no,gyomu:null,pay:null,
-
         items:[{qty:1,name:'Excel取込分',origin:'',price:t,disc:0,total:t,tax:8}],created:base,source:'excel'};
-
       cnt[r.cid]=(cnt[r.cid]||0)+1;
-
     });
-
     await db.ref('fishhack/deliveries').update(upd);
-
     for(const cid of Object.keys(cnt)){const c=S.clients[cid]||{};await db.ref('fishhack/clients/'+cid+'/delivery_count').set((c.delivery_count||0)+cnt[cid]);}
-
     toast(add.length+'件を追加しました','ok');
-
     setTimeout(xlRender,800);
-
   }catch(e){console.error(e);toast('追加失敗：'+e.message,'err');}
-
 }
-
-
 
 /* クロス集計CSV出力 */
 function exportCross(){
