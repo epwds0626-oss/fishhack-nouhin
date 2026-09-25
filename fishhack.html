@@ -212,6 +212,9 @@ header{
 .store-badge{display:inline-block;padding:1px 7px;border-radius:4px;font-size:11px;font-weight:700;background:#e9f0f4;color:var(--sea-lit);margin-left:4px}
 .inv-store-row td{background:#f4f8fa;font-weight:700;color:var(--sea)}
 .inv-store-sub td{border-top:1px solid var(--line-strong)}
+/* 品名は日本語入力、数値欄は英数入力のヒント（対応ブラウザのみ有効） */
+.it-name,.em-name,.ie-name{ime-mode:active}
+.itbl input[type=number],#nvItems input[type=number],#emItems input[type=number]{ime-mode:disabled}
 </style>
 </head>
 <body>
@@ -920,7 +923,7 @@ function addItemRow(preset){
   tr.innerHTML=`
     <td><input type="number" class="num it-qty" step="0.01" placeholder="0" oninput="calcTotals()"></td>
     <td><div class="suggest-wrap">
-      <input type="text" class="it-name" placeholder="品名" autocomplete="off"
+      <input type="text" class="it-name" lang="ja" inputmode="text" placeholder="品名" autocomplete="off"
         oninput="onNameInput(this)" onblur="setTimeout(()=>hideSuggest(this),150)" onkeydown="suggestKey(event,this)">
     </div></td>
     <td><input type="text" class="it-origin" placeholder="産地"></td>
@@ -952,22 +955,39 @@ function onNameInput(inp){
   const hits=S.items.filter(it=>it.name.toLowerCase().includes(ql)).slice(0,12);
   if(!hits.length){ if(box)box.remove(); return; }
   if(!box){ box=document.createElement('div');box.className='suggest';wrap.appendChild(box); }
-  box.innerHTML=hits.map((it,i)=>`
-    <div class="suggest-item" data-i="${i}" onmousedown="pickSuggest(this)">
+  const cid=document.getElementById('nvClient').value;
+  box.innerHTML=hits.map((it,i)=>{
+    const lp=latestPrice(it.name,cid);
+    return `<div class="suggest-item" data-i="${i}" onmousedown="pickSuggest(this)">
       <span class="snm">${esc(it.name)}</span>
-      <span class="smeta">平均${it.price_avg?('¥'+it.price_avg):'—'} / ${it.count}回 / ${it.tax}%</span>
-    </div>`).join('');
+      <span class="smeta">直近${lp?yen(lp):'—'} / ${it.count}回 / ${it.tax}%</span>
+    </div>`;}).join('');
   box._hits=hits; curSuggestIdx=-1;
 }
 function pickSuggest(el){
   const box=el.closest('.suggest');const i=parseInt(el.dataset.i,10);const it=box._hits[i];
   const tr=box.closest('tr');
   tr.querySelector('.it-name').value=it.name;
-  if(it.price_avg)tr.querySelector('.it-price').value=it.price_avg;
+  const p=latestPrice(it.name,document.getElementById('nvClient').value)||it.price_avg;
+  if(p)tr.querySelector('.it-price').value=p;
   if(it.origins&&it.origins[0])tr.querySelector('.it-origin').value=it.origins[0];
   tr.querySelector('.it-tax').value=it.tax||10;
   box.remove(); calcTotals();
   tr.querySelector('.it-qty').focus();
+}
+/* 直近単価：同じ取引先の最新 → 全体の最新 の順で探す */
+function latestPrice(name,cid){
+  let best=null,bestC=null;
+  S.deliveries.forEach(d=>{
+    if(!d.date)return;
+    const k=d.date+'|'+String(d.edited||d.created||0).padStart(15,'0');
+    (d.items||[]).forEach(it=>{
+      if(it.name!==name||!it.price)return;
+      if(!best||k>best.k)best={k,price:it.price};
+      if(cid&&d.client===cid&&(!bestC||k>bestC.k))bestC={k,price:it.price};
+    });
+  });
+  return (bestC||best||{}).price||null;
 }
 function hideSuggest(inp){const b=inp.closest('.suggest-wrap').querySelector('.suggest');if(b)b.remove();}
 function suggestKey(e,inp){
@@ -1098,7 +1118,7 @@ function addEditRow(preset){
   tr.innerHTML=`
     <td><input type="number" class="num em-qty" step="0.01" placeholder="0" oninput="calcEditTotals()"></td>
     <td><div class="suggest-wrap">
-      <input type="text" class="em-name" placeholder="品名" autocomplete="off"
+      <input type="text" class="em-name" lang="ja" inputmode="text" placeholder="品名" autocomplete="off"
         oninput="onEditNameInput(this)" onblur="setTimeout(()=>hideSuggest(this),150)">
     </div></td>
     <td><input type="text" class="em-origin" placeholder="産地"></td>
@@ -1128,18 +1148,21 @@ function onEditNameInput(inp){
   const hits=S.items.filter(it=>it.name.toLowerCase().includes(ql)).slice(0,12);
   if(!hits.length){if(box)box.remove();return;}
   if(!box){box=document.createElement('div');box.className='suggest';wrap.appendChild(box);}
-  box.innerHTML=hits.map((it,i)=>`
-    <div class="suggest-item" data-i="${i}" onmousedown="pickEditSuggest(this)">
+  const cid=document.getElementById('emClient').dataset.cid;
+  box.innerHTML=hits.map((it,i)=>{
+    const lp=latestPrice(it.name,cid);
+    return `<div class="suggest-item" data-i="${i}" onmousedown="pickEditSuggest(this)">
       <span class="snm">${esc(it.name)}</span>
-      <span class="smeta">平均${it.price_avg?('¥'+it.price_avg):'—'} / ${it.count}回 / ${it.tax}%</span>
-    </div>`).join('');
+      <span class="smeta">直近${lp?yen(lp):'—'} / ${it.count}回 / ${it.tax}%</span>
+    </div>`;}).join('');
   box._hits=hits;
 }
 function pickEditSuggest(el){
   const box=el.closest('.suggest');const i=parseInt(el.dataset.i,10);const it=box._hits[i];
   const tr=box.closest('tr');
   tr.querySelector('.em-name').value=it.name;
-  if(it.price_avg)tr.querySelector('.em-price').value=it.price_avg;
+  const p=latestPrice(it.name,document.getElementById('emClient').dataset.cid)||it.price_avg;
+  if(p)tr.querySelector('.em-price').value=p;
   if(it.origins&&it.origins[0])tr.querySelector('.em-origin').value=it.origins[0];
   tr.querySelector('.em-tax').value=it.tax||8;
   box.remove();calcEditTotals();
@@ -1480,7 +1503,7 @@ function addInvoiceRow(preset,idx){
   tr.innerHTML=`
     <td><input type="text" class="ie-date" placeholder="—" style="font-size:12px"></td>
     <td><input type="text" class="ie-denpyo mono" placeholder="—" style="font-size:11px"></td>
-    <td><input type="text" class="ie-name" placeholder="品名・調整項目"></td>
+    <td><input type="text" class="ie-name" lang="ja" inputmode="text" placeholder="品名・調整項目"></td>
     <td><input type="number" class="num ie-qty" step="0.01" placeholder=""></td>
     <td><input type="number" class="num ie-price" placeholder="0"></td>
     <td><select class="ie-tax"><option value="8">8%</option><option value="10">10%</option></select></td>
