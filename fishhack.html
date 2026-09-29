@@ -581,7 +581,7 @@ header{
   <div class="modal" style="width:min(920px,100%)">
     <div class="modal-hd">
       <h2 id="emTitle">納品を編集</h2>
-      <span class="denpyo" id="emDenpyo" style="margin-left:10px"></span>
+      <input type="text" class="denpyo" id="emDenpyo" title="納品番号（修正できます）" autocomplete="off" style="margin-left:10px;width:170px;padding:4px 8px;font-size:15px;border:1px solid var(--line-strong);border-radius:6px">
       <button class="x" onclick="closeModal('editModal')">×</button>
     </div>
     <div class="modal-bd">
@@ -1105,7 +1105,7 @@ function openEditDelivery(key){
   const d=S.deliveries.find(x=>x._key===key);
   if(!d){toast('納品が見つかりません','err');return;}
   document.getElementById('emKey').value=key;
-  document.getElementById('emDenpyo').textContent=d.denpyo||'';
+  document.getElementById('emDenpyo').value=d.denpyo||'';
   const nm=(S.clients[d.client]||{}).name||d.client;
   document.getElementById('emClient').value=nm;
   document.getElementById('emClient').dataset.cid=d.client;
@@ -1224,7 +1224,16 @@ async function saveEditDelivery(){
   const rows=readEditItems().filter(r=>r.name);
   if(!rows.length){toast('品目を1つ以上入力してください','err');return;}
   const items=rows.map(r=>({qty:r.qty,name:r.name,origin:r.origin,price:r.price,disc:r.disc,total:r.total,tax:r.tax}));
+  // 納品番号（修正可）
+  const denpyo=document.getElementById('emDenpyo').value.trim().toUpperCase();
+  if(!denpyo){toast('納品番号を入力してください','err');return;}
+  const cur=S.deliveries.find(x=>x._key===key)||{};
+  if(denpyo!==(cur.denpyo||'')){
+    const dup=S.deliveries.find(x=>x._key!==key&&String(x.denpyo||'').toUpperCase()===denpyo);
+    if(dup&&!confirm('納品番号「'+denpyo+'」は既に使われています（'+(dup.date||'')+'）。\nこのまま保存しますか？'))return;
+  }
   const upd={
+    denpyo,
     date:document.getElementById('emDate').value,
     store:(document.getElementById('emStore')?document.getElementById('emStore').value:'')||null,
     gyomu:document.getElementById('emGyomu').value.trim()||null,
@@ -1266,7 +1275,7 @@ function printEditDelivery(){
   const cid=document.getElementById('emClient').dataset.cid;
   const nm=(S.clients[cid]||{}).name||cid;
   const date=document.getElementById('emDate').value;
-  const denpyo=document.getElementById('emDenpyo').textContent;
+  const denpyo=document.getElementById('emDenpyo').value.trim();
   const gyomu=document.getElementById('emGyomu').value||'';
   const pay=document.getElementById('emPay').value||'';
   printDeliveryDoc({nm,date,denpyo,gyomu,pay,rows,t});
