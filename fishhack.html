@@ -555,9 +555,13 @@ header{
       </div>
       <div class="totals" style="margin-top:12px">
         <div class="totals-box">
-          <div class="trow"><span>小計（税抜）</span><span class="v" id="ieSub">¥0</span></div>
-          <div class="trow"><span>消費税 8%</span><span class="v" id="ieTax8">¥0</span></div>
-          <div class="trow"><span>消費税 10%</span><span class="v" id="ieTax10">¥0</span></div>
+          <div class="trow" style="font-weight:700"><span>8%対象（軽減税率）</span><span></span></div>
+          <div class="trow" style="padding-left:14px"><span>小計（税抜）</span><span class="v" id="ieBase8">¥0</span></div>
+          <div class="trow" style="padding-left:14px;border-bottom:1px dashed var(--line)"><span>消費税 8%</span><span class="v" id="ieTax8">¥0</span></div>
+          <div class="trow" style="font-weight:700;margin-top:6px"><span>10%対象</span><span></span></div>
+          <div class="trow" style="padding-left:14px"><span>小計（税抜）</span><span class="v" id="ieBase10">¥0</span></div>
+          <div class="trow" style="padding-left:14px;border-bottom:1px dashed var(--line)"><span>消費税 10%</span><span class="v" id="ieTax10">¥0</span></div>
+          <div class="trow" style="margin-top:6px"><span>小計（税抜）合計</span><span class="v" id="ieSub">¥0</span></div>
           <div class="trow grand"><span>ご請求額</span><span class="v" id="ieGrand">¥0</span></div>
         </div>
       </div>
@@ -1596,10 +1600,12 @@ function calcInvoiceTotals(){
   });
   const tax8=Math.floor(t8*0.08),tax10=Math.floor(t10*0.10);
   document.getElementById('ieSub').textContent=yen(sub);
+  document.getElementById('ieBase8').textContent=yen(t8);
+  document.getElementById('ieBase10').textContent=yen(t10);
   document.getElementById('ieTax8').textContent=yen(tax8);
   document.getElementById('ieTax10').textContent=yen(tax10);
   document.getElementById('ieGrand').textContent=yen(sub+tax8+tax10);
-  return {sub,tax8,tax10,grand:sub+tax8+tax10};
+  return {sub,base8:t8,base10:t10,tax8,tax10,grand:sub+tax8+tax10};
 }
 
 // PDF生成用に明細を返す
@@ -1728,9 +1734,11 @@ function printInvoice(){
     .mono{font-family:Consolas,monospace;font-size:10px;color:#1c5c93}
     .mk{color:#b5502e;font-weight:700}
     .sum{display:flex;justify-content:flex-end;margin-top:12px}
-    .sum table{width:300px}
-    .sum td{border:none;padding:4px 9px;font-size:12px}
-    .sum .g td{border-top:2px solid #12395e;font-size:18px;font-weight:800;color:#12395e;padding-top:8px}
+    .sum table{width:480px}
+    .sum th{font-size:11px;padding:6px 9px}
+    .sum td{padding:6px 9px;font-size:12px;border-bottom:1px solid #c9d6de}
+    .sum .g td{border-top:2px solid #12395e;border-bottom:none;font-size:13px;font-weight:800;color:#12395e;padding-top:8px}
+    .sum .g td:last-child{font-size:17px}
     .note{margin-top:18px;font-size:11px;color:#333;line-height:1.8;white-space:pre-wrap}
     .taxnote{margin-top:12px;font-size:10px;color:#5a6b78}
     .bank{margin-top:14px;padding:12px 16px;border:1px solid #c9d6de;border-radius:4px;font-size:11px;line-height:1.9}
@@ -1762,10 +1770,12 @@ function printInvoice(){
       <tbody>${bodyRows}</tbody>
     </table>
     <div class="sum"><table>
-      <tr><td>小計（税抜）</td><td class="r">${yen(t.sub)}</td></tr>
-      ${t.tax8?`<tr><td>消費税 8%</td><td class="r">${yen(t.tax8)}</td></tr>`:''}
-      ${t.tax10?`<tr><td>消費税 10%</td><td class="r">${yen(t.tax10)}</td></tr>`:''}
-      <tr class="g"><td>合計</td><td class="r">${yen(t.grand)}</td></tr>
+      <thead><tr><th>税率区分</th><th class="r">小計（税抜）</th><th class="r">消費税額</th><th class="r">合計（税込）</th></tr></thead>
+      <tbody>
+      ${(t.base8||!t.base10)?`<tr><td>8%対象（軽減税率）</td><td class="r">${yen(t.base8||0)}</td><td class="r">${yen(t.tax8)}</td><td class="r">${yen((t.base8||0)+t.tax8)}</td></tr>`:''}
+      ${t.base10?`<tr><td>10%対象</td><td class="r">${yen(t.base10)}</td><td class="r">${yen(t.tax10)}</td><td class="r">${yen(t.base10+t.tax10)}</td></tr>`:''}
+      <tr class="g"><td>合計</td><td class="r">${yen(t.sub)}</td><td class="r">${yen(t.tax8+t.tax10)}</td><td class="r">${yen(t.grand)}</td></tr>
+      </tbody>
     </table></div>
     ${note?`<div class="note">${esc(note)}</div>`:''}
     ${fmt==='detail'?'<div class="taxnote">※印は軽減税率（8%）対象品目です。</div>':''}
