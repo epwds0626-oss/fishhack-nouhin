@@ -480,6 +480,16 @@ header{
     <div class="stat-row" id="dashStats"></div>
 
     <div class="slip">
+      <div class="slip-hd"><h2 id="dashDailyTitle">日別売上</h2>
+        <div class="sp"></div>
+        <input type="month" id="dashDailyMonth" onchange="renderDashDaily()" style="margin-right:8px">
+        <button class="btn btn-sm" onclick="exportDashDaily()">CSV出力</button>
+      </div>
+      <div class="slip-bd"><div style="overflow-x:auto"><table class="list" id="dashDaily"></table></div>
+        <div class="muted" id="dashDailyNote" style="font-size:12px;margin-top:6px"></div></div>
+    </div>
+
+    <div class="slip">
       <div class="slip-hd"><h2 id="crossTitle">取引先 × 月 クロス集計</h2>
         <div class="sp"></div>
         <button class="btn btn-sm" onclick="exportCross()">CSV出力</button>
@@ -1977,6 +1987,7 @@ function fiscalYear(ymd){
 const FY_MONTHS=[10,11,12,1,2,3,4,5,6,7,8,9]; // 表示順（10月始まり）
 
 function renderDash(){
+  try{renderDashDaily();}catch(e){console.error(e);}
   // 会計年度セレクトを用意
   const fySel=document.getElementById('dashFy');
   const fySet=new Set();
@@ -2225,6 +2236,55 @@ async function xlImport(){
 }
 
 /* クロス集計CSV出力 */
+
+/* ========== 日別売上（集計画面） ========== */
+function renderDashDaily(){
+  const mEl=document.getElementById('dashDailyMonth');if(!mEl)return;
+  if(!mEl.value)mEl.value=todayStr().slice(0,7);
+  const ym=mEl.value;
+  const gross=(document.getElementById('dashBasis')||{}).value!=='net';
+  const BL=gross?'税込':'税抜';
+  const amt=d=>{const t=dTotal(d);return gross?t.grand:t.sub;};
+  const y=+ym.slice(0,4),m=+ym.slice(5,7),last=new Date(y,m,0).getDate();
+  const W='日月火水木金土';
+  const by={};let excel=0,excelN=0;
+  S.deliveries.forEach(d=>{
+    if(!d.date||d.date.slice(0,7)!==ym)return;
+    if(d.source==='excel'){excel+=amt(d);excelN++;return;}
+    const k=d.date.slice(0,10);
+    if(!by[k])by[k]={sum:0,n:0,clients:{}};
+    by[k].sum+=amt(d);by[k].n++;
+    const nm=(S.clients[d.client]||{}).name||d.client;by[k].clients[nm]=(by[k].clients[nm]||0)+amt(d);
+  });
+  const rows=[];let total=0,cnt=0,days=0,max=0;
+  for(let i=1;i<=last;i++){
+    const k=ym+'-'+String(i).padStart(2,'0');const v=by[k]||{sum:0,n:0,clients:{}};
+    rows.push({k,w:W[new Date(y,m-1,i).getDay()],...v});total+=v.sum;cnt+=v.n;if(v.n)days++;if(v.sum>max)max=v.sum;
+  }
+  window._dailyCache={ym,BL,rows,total,cnt};
+  document.getElementById('dashDailyTitle').textContent=`日別売上（${y}年${m}月・${BL}）`;
+  const today=todayStr();
+  const body=rows.filter(r=>r.k<=today||r.n).map(r=>{
+    const wc=r.w==='日'?'color:#c0392b':r.w==='土'?'color:#2c6fb0':'';
+    const cl=Object.entries(r.clients).sort((a,b)=>b[1]-a[1]).map(([n,v])=>`${n} ${Math.round(v).toLocaleString()}`).join('、');
+    const bar=max?`<div style="height:8px;border-radius:3px;background:var(--line,#dde5ea);width:120px;overflow:hidden"><div style="height:100%;width:${r.sum/max*100}%;background:#1f7a8c"></div></div>`:'';
+    return `<tr class="${r.n?'':'muted'}"><td>${+r.k.slice(8)}日 <span style="${wc}">${r.w}</span></td><td class="num">${r.n||'·'}</td><td class="num">${r.n?yen(r.sum):'·'}</td><td>${bar}</td><td style="font-size:12px;white-space:normal">${cl}</td></tr>`;
+  }).join('');
+  document.getElementById('dashDaily').innerHTML=`<thead><tr><th>日付</th><th class="num">件数</th><th class="num">売上</th><th></th><th>取引先</th></tr></thead><tbody>${body}</tbody>
+    <tfoot><tr style="font-weight:700"><td>月計</td><td class="num">${cnt}</td><td class="num">${yen(total)}</td><td colspan="2" style="font-size:12px">納品のあった日 ${days}日 ／ 1日あたり ${yen(days?total/days:0)}</td></tr></tfoot>`;
+  document.getElementById('dashDailyNote').textContent=excelN?`※ Excel取込分（月まとめ ${excelN}件・${yen(excel)}）は日付が月初にまとめて入っているため、日別には含めていません。`:'';
+}
+function exportDashDaily(){
+  const c=window._dailyCache;if(!c){toast('データがありません','err');return;}
+  const lines=['日付,曜日,件数,売上('+c.BL+'),取引先'];
+  c.rows.forEach(r=>lines.push([r.k,r.w,r.n,Math.round(r.sum),'"'+Object.keys(r.clients).join('・').replace(/"/g,'')+'"'].join(',')));
+  lines.push(['月計','',c.cnt,Math.round(c.total),''].join(','));
+  const blob=new Blob(['﻿'+lines.join('\r\n')],{type:'text/csv'});
+  const url=URL.createObjectURL(blob);const a=document.createElement('a');
+  a.href=url;a.download=`FishHack_日別売上_${c.ym}_${c.BL}.csv`;a.click();URL.revokeObjectURL(url);
+  toast('CSVを出力しました','ok');
+}
+
 function exportCross(){
   const c=window._crossCache;if(!c){toast('データがありません','err');return;}
   const header=['取引先',...FY_MONTHS.map(m=>m+'月'),'年間計'];
